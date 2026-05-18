@@ -7,6 +7,7 @@ FusionCareer-The algorithms team's repository
 简历解析模块，支持从PDF及Word格式的简历中提取关键信息，如姓名、联系方式、教育背景、个人经历等。调用DeepSeek输出结构化JSO，直接匹配数据库字段。
 
 ## 文件目录结构
+```
 resume_parser/
 ├── extractors/
 │ ├── init.py
@@ -20,6 +21,7 @@ resume_parser/
 ├── prompt.py   # 提示词模板
 ├── requirements.txt   # 依赖列表
 └── resume_parser_example.py   # 使用示例
+```
 
 ### 快速开始
 
