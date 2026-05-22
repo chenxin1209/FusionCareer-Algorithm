@@ -12,15 +12,19 @@ resume_parser/
 ├── extractors/
 │ ├── init.py
 │ ├── docx_extractor.py   # Word 提取：段落、表格、文本框
+│ ├── image_extractor.py  # 图片提取：jpg, jpeg, png
 │ └── pdf_extractor.py   # PDF 提取：文本、表格
 ├── llm/
 │ ├── init.py
 │ └── deepseek_client.py   # DeepSeek API 封装
+├── ocr/
+│ ├── init.py
+│ └── paddle_ocr.py  # ocr识别封装
 ├── init.py
 ├── parser.py   # 核心解析类 ResumeParser
 ├── prompt.py   # 提示词模板
-├── requirements.txt   # 依赖列表
-└── resume_parser_example.py   # 使用示例
+└──requirements.txt   # 依赖列表
+resume_parser_example.py   # 使用示例
 ```
 
 ### 快速开始
