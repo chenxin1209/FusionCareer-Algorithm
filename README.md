@@ -37,7 +37,8 @@ pip install -r requirements.txt
 #### 2. 配置 API Key
 终端设置环境变量 DEEPSEEK_API_KEY，或在项目根目录创建 .env 文件：
 ```env
-set DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+set DEEPSEEK_API_KEY=your_key_here   (Windows CMD)
+$env:DEEPSEEK_API_KEY="your_key"     (PowerShell)
 ```
 
 #### 3. 运行示例
