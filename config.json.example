@@ -1,0 +1,18 @@
+{
+  "llm_api_key": "sk-your-deepseek-key",
+  "llm_base_url": "https://api.deepseek.com/v1",
+  "llm_model": "deepseek-chat",
+  "articles_dir": "data/articles",
+  "output_csv": "data/output/all_positions.csv",
+  "output_json": "data/output/all_positions.json",
+  "skip_log": "logs/non_recruitment.log",
+  "backend_base_url": "http://localhost:9100",
+  "job_post_batch_path": "/internal/job-post/batch",
+  "job_post_list_path": "/internal/job-post/list",
+  "upload_batch_size": 50,
+  "upload_fetch_existing": true,
+  "upload_fetch_page_size": 200,
+  "upload_timeout_seconds": 120,
+  "upload_state_file": "logs/uploaded_job_keys.json",
+  "upload_log_file": "logs/upload_backend.log"
+}
