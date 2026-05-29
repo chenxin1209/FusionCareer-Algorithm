@@ -1,0 +1,13 @@
+# Resume parser (Python 3.10+)
+# pip install -r requirements.txt
+
+python-docx>=1.1.0
+pdfplumber>=0.11.0
+openai>=1.40.0
+lxml>=5.0.0
+Pillow>=10.2.0
+numpy>=1.24.0
+paddlepaddle==3.1.1
+paddleocr==3.1.0
+# PaddleOCR 3.1 需 PaddleX <3.2，否则 PaddlePredictorOption 报错
+paddlex>=3.1.0,<3.2.0
