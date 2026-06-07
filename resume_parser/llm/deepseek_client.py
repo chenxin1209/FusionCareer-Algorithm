@@ -1,4 +1,4 @@
-"""DeepSeek client (OpenAI-compatible): JSON-mode extraction with one retry."""
+"""DeepSeek client (OpenAI-compatible): JSON-mode text extraction."""
 
 from __future__ import annotations
 
@@ -22,23 +22,34 @@ def _strip_json_fence(raw: str) -> str:
 class DeepSeekClient:
     """Call DeepSeek Chat with JSON response format; retry once on parse failure."""
 
-    def __init__(self, api_key: str, model: str = "deepseek-chat") -> None:
+    def __init__(
+        self,
+        api_key: str,
+        model: str = "deepseek-chat",
+        base_url: str = "https://api.deepseek.com",
+    ) -> None:
         if not api_key or not str(api_key).strip():
             raise ValueError("api_key cannot be empty")
         self._client = OpenAI(
             api_key=api_key.strip(),
-            base_url="https://api.deepseek.com",
+            base_url=base_url.rstrip("/"),
         )
         self._model = model
 
     def parse_resume_to_dict(self, resume_text: str) -> dict[str, Any]:
         """
-        Send resume plain text to the model and return a parsed dict.
+        将简历纯文本送入模型，返回解析后的 dict。
 
         Raises:
-            RuntimeError: API failure or invalid JSON after one retry.
+            RuntimeError: API 失败或两次均无法解析 JSON。
         """
-        user_content = build_user_prompt(resume_text)
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": build_user_prompt(resume_text)},
+        ]
+        return self._complete_json(messages)
+
+    def _complete_json(self, messages: list[dict[str, Any]]) -> dict[str, Any]:
         last_raw = ""
 
         for attempt in range(2):
@@ -47,10 +58,7 @@ class DeepSeekClient:
                     model=self._model,
                     temperature=0,
                     response_format={"type": "json_object"},
-                    messages=[
-                        {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user", "content": user_content},
-                    ],
+                    messages=messages,
                 )
             except Exception as e:
                 raise RuntimeError(f"DeepSeek API call failed: {e}") from e
