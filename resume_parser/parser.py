@@ -1,5 +1,6 @@
 """
 ResumeParser: file -> text -> DeepSeek JSON -> dict aligned with DB tables; batch CSV export.
+Images: PaddleOCR -> clean_ocr_text -> deepseek-chat.
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from resume_parser.extractors.docx_extractor import extract_text_from_docx
+from resume_parser.extractors.image_extractor import extract_text_from_image
 from resume_parser.extractors.pdf_extractor import extract_text_from_pdf
 from resume_parser.llm.deepseek_client import DeepSeekClient
 
@@ -43,6 +45,7 @@ FIELD_NAMES: list[str] = [
     "remark",
 ]
 
+_IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg"})
 _NUMERIC_FIELDS = frozenset({"gender", "political_status", "edu_level", "mindset"})
 
 
@@ -53,10 +56,46 @@ def _empty_record() -> dict[str, Any]:
     return rec
 
 
+def clean_ocr_text(text: str) -> str:
+    """
+    OCR 文本清洗：行内多空格压缩、合并过短行，保留段落（空行分隔）。
+    """
+    if not text:
+        return ""
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    cleaned_lines: list[str] = []
+    for line in lines:
+        s = re.sub(r"[ \t]+", " ", line.strip())
+        if not s:
+            cleaned_lines.append("")
+            continue
+        if cleaned_lines and cleaned_lines[-1] != "":
+            prev = cleaned_lines[-1]
+            if len(s) <= 40 and not prev.endswith(
+                ("。", "！", "？", "：", "；", ".", "!", "?")
+            ):
+                cleaned_lines[-1] = (prev + " " + s).strip()
+                continue
+        cleaned_lines.append(s)
+
+    blocks: list[str] = []
+    buf: list[str] = []
+    for ln in cleaned_lines:
+        if ln == "":
+            if buf:
+                blocks.append("\n".join(buf))
+                buf = []
+            continue
+        buf.append(ln)
+    if buf:
+        blocks.append("\n".join(buf))
+
+    return "\n\n".join(blocks).strip()
+
+
 def _flatten_raw(raw: dict[str, Any]) -> dict[str, Any]:
     """
     Flatten model output: accept top-level fields or nested fc_user_profile / fc_resume.
-    Some models group fields even when the prompt asks for a flat object.
     """
     flat: dict[str, Any] = {}
 
@@ -89,12 +128,9 @@ def _coerce_numeric(val: Any) -> str:
     if isinstance(val, bool):
         return ""
     if isinstance(val, (int, float)) and not isinstance(val, bool):
-        n = int(val)
-        return str(n)
+        return str(int(val))
     s = str(val).strip()
-    if s.isdigit():
-        return s
-    return ""
+    return s if s.isdigit() else ""
 
 
 def _normalize_model_output(raw: dict[str, Any]) -> dict[str, Any]:
@@ -131,21 +167,27 @@ def _normalize_model_output(raw: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def _extract_plain_text(file_path: str) -> str:
+def _extract_plain_text(file_path: str) -> tuple[str, bool]:
     """
-    Extract plain text by file extension.
+    按扩展名提取纯文本。
+
+    Returns:
+        (text, is_ocr)：图片为 PaddleOCR 结果时 is_ocr=True。
 
     Raises:
-        ValueError: Unsupported format.
+        ValueError: 不支持的格式。
     """
     path = Path(file_path)
     ext = path.suffix.lower()
+    if ext in _IMAGE_SUFFIXES:
+        return extract_text_from_image(str(path)), True
     if ext == ".docx":
-        return extract_text_from_docx(str(path))
+        return extract_text_from_docx(str(path)), False
     if ext == ".pdf":
-        return extract_text_from_pdf(str(path))
+        return extract_text_from_pdf(str(path)), False
     raise ValueError(
-        f"Unsupported file format: {ext or '(no extension)'}. Supported: .docx, .pdf"
+        f"Unsupported file format: {ext or '(no extension)'}. "
+        f"Supported: .docx, .pdf, .png, .jpg, .jpeg"
     )
 
 
@@ -184,9 +226,13 @@ class ResumeParser:
 
         Raises:
             ValueError: Unsupported format.
-            RuntimeError: LLM JSON parse failure.
+            RuntimeError: OCR or LLM JSON parse failure.
         """
-        text = _extract_plain_text(file_path).strip()
+        text, from_ocr = _extract_plain_text(file_path)
+        text = text.strip()
+        if from_ocr:
+            text = clean_ocr_text(text)
+
         raw = self._llm.parse_resume_to_dict(text)
         return _normalize_model_output(raw)
 
@@ -209,3 +255,18 @@ class ResumeParser:
             writer.writeheader()
             for row in rows:
                 writer.writerow(row)
+
+    def parse_text(self, text: str) -> dict[str, Any]:
+        """
+        直接解析已经提取好的纯文本，跳过文件提取步骤。
+        用于 HTTP 服务接收 raw_text 时调用。
+        """
+        # 注意：原 parse 中会调用 _extract_plain_text 然后清洗 OCR
+        # 这里假设调用者已经处理好文本，如果需要 OCR 清洗可加判断
+        raw = self._llm.parse_resume_to_dict(text)
+        return _normalize_model_output(raw)
+
+    # 将原有的 _extract_plain_text 改为公共静态方法，方便路由调用（可选）
+    @staticmethod
+    def extract_plain_text(file_path: str) -> tuple[str, bool]:
+        return _extract_plain_text(file_path)
