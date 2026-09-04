@@ -10,7 +10,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import statistics
 import sys
+from collections import Counter
 from datetime import datetime
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -124,6 +126,34 @@ def main() -> int:
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     with open(args.out, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
+
+    top1 = Counter()
+    scores: list[float] = []
+    backend = ""
+    for rec in reports:
+        emb = rec.get("embedding") or {}
+        if not backend:
+            backend = ((emb.get("metrics") or {}).get("backend") or "")
+        top = emb.get("top") or []
+        if not top:
+            continue
+        hit = top[0]
+        top1[f"{hit.get('companyName') or ''} / {hit.get('positionName') or ''}"] += 1
+        try:
+            scores.append(float(hit.get("score") or 0))
+        except (TypeError, ValueError):
+            pass
+    print("\n----- Top-1 分布 -----")
+    if backend:
+        print(f"backend: {backend}")
+    for label, n in top1.most_common():
+        print(f"  {n:3d}  {label}")
+    if scores:
+        print(
+            "Top-1 分数 "
+            f"min={min(scores):.3f} median={statistics.median(scores):.3f} "
+            f"max={max(scores):.3f}"
+        )
     print(f"\n已写入 {args.out}")
     return 0
 

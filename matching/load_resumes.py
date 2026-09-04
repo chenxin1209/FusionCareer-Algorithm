@@ -4,8 +4,24 @@ from __future__ import annotations
 
 import csv
 import json
+import re
 from pathlib import Path
 from typing import Any
+
+_EXCEL_MONTH = {
+    "Jan": "01",
+    "Feb": "02",
+    "Mar": "03",
+    "Apr": "04",
+    "May": "05",
+    "Jun": "06",
+    "Jul": "07",
+    "Aug": "08",
+    "Sep": "09",
+    "Oct": "10",
+    "Nov": "11",
+    "Dec": "12",
+}
 
 RESUME_TEXT_FIELDS = (
     "real_name",
@@ -24,6 +40,29 @@ RESUME_TEXT_FIELDS = (
     "portfolio",
     "remark",
 )
+
+
+def _fix_excel_birth_date(val: Any) -> str:
+    """Excel 常把 2005-09 存成 Sep-05；还原为 YYYY-MM。"""
+    s = str(val or "").strip()
+    if not s:
+        return ""
+    m = re.fullmatch(r"(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-(\d{2})", s)
+    if not m:
+        return s
+    yy = int(m.group(2))
+    year = 2000 + yy if yy < 50 else 1900 + yy
+    return f"{year}-{_EXCEL_MONTH[m.group(1)]}"
+
+
+def _digits_phone(val: Any) -> str:
+    raw = str(val or "").strip()
+    if not raw:
+        return ""
+    digits = re.sub(r"\D", "", raw)
+    if len(digits) == 11:
+        return digits
+    return raw
 
 
 def _parse_intention_city(val: Any) -> list[str]:
@@ -51,6 +90,8 @@ def _normalize_resume(row: dict[str, Any]) -> dict[str, Any]:
             out[k] = ""
         elif isinstance(v, str):
             out[k] = v.strip()
+    out["birth_date"] = _fix_excel_birth_date(out.get("birth_date"))
+    out["phone"] = _digits_phone(out.get("phone"))
     return out
 
 
