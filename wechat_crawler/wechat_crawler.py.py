@@ -754,6 +754,76 @@ def mode_update(
     return stats
 
 
+def _article_ts(article):
+    try:
+        return int(article.get("create_time") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def mode_range(
+    fakeids,
+    token,
+    cookie,
+    account_names,
+    articles_base_dir,
+    since_ts,
+    until_ts,
+    max_pages_per_account=40,
+):
+    """
+    按发布时间窗口抓取（需公众平台 token/cookie）。
+    列表按时间倒序，翻页直到早于 since_ts 即停。
+    """
+    print("--- 日期区间抓取 ---")
+    print(f"窗口: {datetime.fromtimestamp(since_ts, BEIJING_TZ).date()} ~ {datetime.fromtimestamp(until_ts, BEIJING_TZ).date()}")
+    print(f"主存档目录: {articles_base_dir}/")
+    headers = get_headers(cookie, token)
+    os.makedirs(articles_base_dir, exist_ok=True)
+
+    stats = {}
+    for idx, fakeid in enumerate(fakeids):
+        account_name = account_names.get(idx, f"account_{idx+1:02d}")
+        stats[account_name] = 0
+        print(f"Range: {fakeid} ({account_name})")
+        begin = 0
+        count = 10
+        collected = []
+        for _page in range(max_pages_per_account):
+            articles, _, _ = get_articles(fakeid, token, cookie, begin, count)
+            if not articles:
+                break
+            stop = False
+            for article in articles:
+                ts = _article_ts(article)
+                if ts and ts > until_ts:
+                    continue
+                if ts and ts < since_ts:
+                    stop = True
+                    break
+                if is_valid_article_link(article.get("link")):
+                    collected.append(article)
+            if stop or len(articles) < count:
+                break
+            begin += count
+            time.sleep(2)
+
+        saved = 0
+        for article in collected:
+            status = save_url_to_md(
+                article, headers, account_name, articles_base_dir=articles_base_dir
+            )
+            if status == "saved":
+                saved += 1
+        stats[account_name] = saved
+        print(f"  窗口内 {len(collected)} 篇，新写入 {saved} 篇")
+        time.sleep(1)
+
+    total = sum(stats.values())
+    print(f"--- 区间抓取完成，新写入 {total} 篇 ---")
+    return stats
+
+
 def _append_daily_report(report_path, stats):
     """将本次各号新增篇数追加写入 JSONL。"""
     line = {
@@ -765,17 +835,26 @@ def _append_daily_report(report_path, stats):
         f.write(json.dumps(line, ensure_ascii=False) + "\n")
 
 
+def _parse_day(s, end=False):
+    dt = datetime.strptime(s, "%Y-%m-%d").replace(tzinfo=BEIJING_TZ)
+    if end:
+        dt = dt.replace(hour=23, minute=59, second=59)
+    return int(dt.timestamp())
+
+
 def main():
     parser = argparse.ArgumentParser(
-        description="微信公众号爬虫：bootstrap / daily / watch",
+        description="微信公众号爬虫：bootstrap / daily / watch / range",
     )
     parser.add_argument(
         "command",
         nargs="?",
         default="watch",
-        choices=("bootstrap", "daily", "watch"),
-        help="bootstrap=每号抓取前若干条并初始化 history；daily=增量一次并报告数量；watch=按间隔循环全量存档检查（旧行为）",
+        choices=("bootstrap", "daily", "watch", "range"),
+        help="bootstrap=每号抓取前若干条并初始化 history；daily=增量一次并报告数量；watch=按间隔循环全量存档检查（旧行为）；range=按日期窗口抓取",
     )
+    parser.add_argument("--since", default="2026-07-01", help="range 起始日 YYYY-MM-DD（含）")
+    parser.add_argument("--until", default="2026-08-31", help="range 结束日 YYYY-MM-DD（含）")
     args = parser.parse_args()
 
     config = load_json(CONFIG_FILE)
@@ -784,6 +863,8 @@ def main():
 
     if not token or not cookie:
         print("错误: config.json 中缺少 token 或 cookie")
+        print("请先在有浏览器的机器上执行: python sync_wechat_session.py")
+        print("无后台登录时可用公开链接抓取: python fetch_public.py")
         return
 
     fakeids = load_fakeids()
@@ -796,6 +877,20 @@ def main():
     print(f"加载了 {len(account_names)} 个公众号名称")
 
     articles_base_dir = get_articles_base_dir(config)
+
+    if args.command == "range":
+        since_ts = _parse_day(args.since, end=False)
+        until_ts = _parse_day(args.until, end=True)
+        mode_range(
+            fakeids,
+            token,
+            cookie,
+            account_names,
+            articles_base_dir,
+            since_ts,
+            until_ts,
+        )
+        return
 
     if args.command == "bootstrap":
         limit = int(config.get("bootstrap_article_limit", 10))

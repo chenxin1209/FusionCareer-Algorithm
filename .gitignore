@@ -27,6 +27,11 @@ all_positions.csv.bak*
 **/all_positions.json
 !sample_data/**
 
+# --- 老师提供的真实简历（勿提交）---
+data/resumes/**
+!data/resumes/sample_resumes.json
+!data/resumes/.gitkeep
+
 # --- 原始公众号文章（体量大，由爬虫产出）---
 data/articles/**
 !data/articles/.gitkeep

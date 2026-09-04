@@ -40,12 +40,15 @@ case "$cmd" in
   sync-session)
     "$VENV_PY" "$ROOT/sync_wechat_session.py" "${@:2}"
     ;;
-  bootstrap)
+  range)
     echo "输出目录（config.json）:"
     print_output_dirs
-    echo "  （bootstrap 仅写入主存档，不创建当日增量目录）"
     echo ""
-    "$VENV_PY" "$CRAWLER" bootstrap
+    "$VENV_PY" "$CRAWLER" range "${@:2}"
+    ;;
+  fetch-public)
+    ROOT_REPO="$(cd "$ROOT/.." && pwd)"
+    python3 "$ROOT/fetch_public.py" --urls "$ROOT/seed_urls.txt" --out "$ROOT_REPO/data/articles" "${@:2}"
     ;;
   daily)
     mkdir -p "$LOG_DIR"
@@ -90,7 +93,9 @@ case "$cmd" in
 用法: $0 <command>
 
   sync-session    同步 token/cookie → config.json
-  bootstrap       每号最新 N 条 → 主存档（articles_base_dir）
+  range [--since YYYY-MM-DD --until YYYY-MM-DD]
+                  按日期窗口抓取（默认 2026-07-01 ~ 2026-08-31），需 token/cookie
+  fetch-public    抓取 seed_urls.txt 中的公开链接（无需登录） → ../data/articles
   daily           增量 → 主存档 + 当日目录（YYYYMMDD\${daily_folder_suffix}）
   paths           打印当前 config 中的输出目录名
   install-cron    每天北京时间 17:00 自动 daily

@@ -1,0 +1,6 @@
+# 公开招聘文 URL（每行一条）。用于无公众平台登录时的测试抓取。
+# 7–8 月全量历史列表仍须: python wechat_crawler.py.py range --since 2026-07-01 --until 2026-08-31
+https://mp.weixin.qq.com/s/VvQvV6NHMU8MauK_vl6ReA
+https://www.jjckb.cn/20260717/c189180a97dd40f3908ffa2cc157b6c5/c.html
+https://www.gaoxiaojob.com/announcement/detail/409257.html
+https://www.jiemian.com/about/advert.html

@@ -1,0 +1,32 @@
+[
+  {
+    "real_name": "示例-新闻学本科",
+    "gender": "2",
+    "major": "新闻学",
+    "grade": "2022级",
+    "edu_level": "1",
+    "intention_order": "新闻媒体,企业公司",
+    "intention_city": ["上海", "北京"],
+    "intention_dream": "党报央媒或财经新媒体记者",
+    "personal_intro": "复旦大学新闻学院新闻学本科，关注时政与人物报道。",
+    "education": "复旦大学 新闻学院 新闻学 2022.09-2026.06",
+    "internship": "校报实习记者；短视频账号内容运营",
+    "skills": "采访写作；微信公众号排版；Premiere基础",
+    "awards": "院级奖学金"
+  },
+  {
+    "real_name": "示例-传播学硕士",
+    "gender": "1",
+    "major": "传播学",
+    "grade": "2024级",
+    "edu_level": "2",
+    "intention_order": "新闻媒体,学术教职",
+    "intention_city": ["上海"],
+    "intention_dream": "智库研究助理或深度报道",
+    "personal_intro": "新闻学院传播学硕士，研究方法与数据新闻方向。",
+    "education": "复旦大学 新闻学院 传播学硕士 2024.09-2027.06",
+    "internship": "媒体研究所实习：资料搜集与报告撰写",
+    "skills": "Python基础；问卷；深度访谈；数据可视化",
+    "awards": ""
+  }
+]
