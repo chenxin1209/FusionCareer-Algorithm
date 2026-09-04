@@ -21,7 +21,7 @@ from job_structuring.engine import load_config
 from job_structuring.filter import filter_jobs, log_dropped
 from job_structuring.normalize import normalize_job_row
 from matching.embedding import match_by_embedding
-from matching.load_resumes import load_resumes
+from matching.load_resumes import load_resumes, summarize_resumes
 
 
 def _load_jobs(path: str) -> list[dict]:
@@ -49,6 +49,7 @@ def main() -> int:
         return 1
 
     resumes = load_resumes(args.resumes)
+    summary = summarize_resumes(resumes)
     jobs = _load_jobs(args.jobs)
     dropped = []
     if not args.no_filter:
@@ -56,7 +57,13 @@ def main() -> int:
         if dropped:
             log_dropped(dropped, os.path.join(PROJECT_ROOT, "logs", "filtered_jobs.log"))
 
-    print(f"简历 {len(resumes)} 份，岗位池 {len(jobs)} 条（过滤删除 {len(dropped)}）")
+    print(
+        f"简历 {summary['count']} 份（无姓名 {summary['unnamed']}），"
+        f"岗位池 {len(jobs)} 条（过滤删除 {len(dropped)}）；"
+        f"实习填充率 {summary['fillRate'].get('internship', 0):.0%}，"
+        f"技能 {summary['fillRate'].get('skills', 0):.0%}，"
+        f"专业 {summary['fillRate'].get('major', 0):.0%}"
+    )
     if not resumes or not jobs:
         print("简历或岗位为空，无法匹配")
         return 1

@@ -27,7 +27,8 @@ all_positions.csv.bak*
 **/all_positions.json
 !sample_data/**
 
-# --- 老师提供的真实简历（勿提交）---
+resume_parse_export.csv
+**/resume_parse_export.csv
 data/resumes/**
 !data/resumes/sample_resumes.json
 !data/resumes/.gitkeep
