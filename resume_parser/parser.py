@@ -8,6 +8,7 @@ from __future__ import annotations
 import csv
 import json
 import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -216,6 +217,19 @@ class ResumeParser:
             api_key: DeepSeek API key (e.g. from os.getenv("DEEPSEEK_API_KEY")).
         """
         self._llm = DeepSeekClient(api_key=api_key)
+        self.last_metrics: dict[str, Any] = {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+            "api_calls": 0,
+            "elapsed_seconds": 0.0,
+        }
+
+    def _record_metrics(self, started_at: float) -> None:
+        self.last_metrics = {
+            **self._llm.last_usage,
+            "elapsed_seconds": round(time.perf_counter() - started_at, 3),
+        }
 
     def parse(self, file_path: str) -> dict[str, Any]:
         """
@@ -228,13 +242,17 @@ class ResumeParser:
             ValueError: Unsupported format.
             RuntimeError: OCR or LLM JSON parse failure.
         """
-        text, from_ocr = _extract_plain_text(file_path)
-        text = text.strip()
-        if from_ocr:
-            text = clean_ocr_text(text)
+        started_at = time.perf_counter()
+        try:
+            text, from_ocr = _extract_plain_text(file_path)
+            text = text.strip()
+            if from_ocr:
+                text = clean_ocr_text(text)
 
-        raw = self._llm.parse_resume_to_dict(text)
-        return _normalize_model_output(raw)
+            raw = self._llm.parse_resume_to_dict(text)
+            return _normalize_model_output(raw)
+        finally:
+            self._record_metrics(started_at)
 
     def parse_batch_to_csv(self, file_paths: list[str], output_csv: str) -> None:
         """
@@ -261,10 +279,12 @@ class ResumeParser:
         直接解析已经提取好的纯文本，跳过文件提取步骤。
         用于 HTTP 服务接收 raw_text 时调用。
         """
-        # 注意：原 parse 中会调用 _extract_plain_text 然后清洗 OCR
-        # 这里假设调用者已经处理好文本，如果需要 OCR 清洗可加判断
-        raw = self._llm.parse_resume_to_dict(text)
-        return _normalize_model_output(raw)
+        started_at = time.perf_counter()
+        try:
+            raw = self._llm.parse_resume_to_dict(text)
+            return _normalize_model_output(raw)
+        finally:
+            self._record_metrics(started_at)
 
     # 将原有的 _extract_plain_text 改为公共静态方法，方便路由调用（可选）
     @staticmethod

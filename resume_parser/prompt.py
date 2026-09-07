@@ -9,50 +9,44 @@ SYSTEM_PROMPT = """你是严谨的简历信息抽取助手。只根据用户提�
 """
 
 _FIELD_SPEC = """
-【fc_user_profile】
+【核心抽取规则（嵌入你的硬性要求）】
+1. 提取姓名时，优先从明确「姓名」标签、简历开头大字、邮箱前缀推断，有线索则不可留空。
+2. 性别、政治面貌、学历层次等枚举：根据典型词语转数字（如「男」→1，「中共党员」→3，「本科生」→1）；无法判断用 null。
+3. 所有日期统一为 YYYY-MM 格式。
+4. 长文本字段（如 internship, awards）必须极其简洁：去掉所有形容性、自我评价性的虚词（如“性格外向”“善于沟通”等主观描述全部删除）；每条经历最多包含：角色/公司，核心任务，量化成果（如果有）；荣誉奖项格式为“奖项名称（级别）”，用分号分隔，不展开描述。
+
+--- fc_user_profile 字段 ---
 - real_name (string)：姓名
 - gender (tinyint)：1-男 2-女 3-其他，无法判断用 null
 - birth_date (string)：出生年月 YYYY-MM，缺失用 ""
 - political_status (tinyint)：1-群众 2-共青团员 3-中共党员 4-其他，无法判断用 null
-- phone (string)：联系电话
+- phone (string)：联系电话（只提取明确数字，不编造）
 - email (string)：邮箱
 - wechat (string)：微信号
 - hometown (string)：生源地（省市）
-- grade (string)：年级，如 2022级
+- grade (string)：毕业年份，如 2026届（若未写明，则硕士生入学年份+3，博士生+4，否则留空）
 - major (string)：专业方向
 - edu_level (tinyint)：1-本科生 2-学术硕士 3-专业硕士 4-博士研究生，无法判断用 null
 - supervisor (string)：导师姓名
-- intention_order (string)：毕业去向意向排序，如「学术教职,企业公司」
+- intention_order (string)：毕业去向意向排序，如「学术教职,企业公司」（用英文逗号分隔）
 - intention_city (array)：意向城市，如 ["上海","北京"]，无则 []
-- intention_dream (string)：梦中情岗描述
+- intention_dream (string)："梦中情岗"描述
 - mindset (tinyint)：1-比较有把握 2-谨慎乐观 3-信心不足 4-非常焦虑 5-佛系等待，无法判断用 null
 
-【fc_resume — 长文本，简洁提取事实；personal_intro 尽量控制在 300 字以内】
-- personal_intro：个人简况/自我评价
-- basic_info：基础信息汇总（含未单独列出的字段）
-- education：教育背景（按时间线）
-- internship：实习经历
-- campus：在校经历
-- awards：荣誉奖励
-- skills：掌握技能（多项用分号分隔）
-- portfolio：作品集
-- remark：其他备注（语言、证书等）
+--- fc_resume 长文本字段（简洁提取事实，严格遵守上述第4条风格规则） ---
+- personal_intro (string)：个人简况（仅概括学历背景、核心技能和成就，300字以内）
+- basic_info (string)：基础信息汇总（含未单独列出的字段）
+- education (string)：教育背景（学校、专业、学位、时间，不含课程列表）
+- internship (string)：实习经历（公司/岗位/核心任务/量化成果）
+- campus (string)：在校经历（角色/组织/项目成果）
+- awards (string)：荣誉奖励（格式：奖项名(级别)，分号分隔，不展开）
+- skills (string)：掌握技能（分号分隔，只写具体技能或证书名称）
+- portfolio (string)：作品集（链接或简述）
+- remark (string)：备注（语言、证书等补充信息）
 
-硬性要求：
-1. 提取姓名时，优先从明确「姓名」标签、简历开头大字、邮箱前缀推断，有线索则不可留空。
-2. 性别、政治面貌、学历层次等枚举：根据典型词语转数字（如「男」→1，「中共党员」→3，「本科生」→1）；无法判断用 null，不要编造。
-3. 所有日期统一为 YYYY-MM 格式。
-4. 长文本字段简洁提取，删语气词与重复，保留要点，不要有内容的遗漏。
-5. 只返回一个 JSON 对象，所有上述 key 必须作为**顶层字段**平铺出现（不要嵌套在 fc_user_profile、fc_resume 等子对象里），不要 Markdown 标记或解释文字。
-
-【输出风格要求】
-你提取的所有文本字段都应该极其简洁，只保留与求职岗位直接相关的硬信息。
-- 去掉所有形容性、自我评价性的虚词（如“性格外向”“善于沟通”等主观描述请全部删除）。
-- 每条经历最多包含：角色/公司，核心任务，量化成果（如果有）。
-- 教育背景只写：学校、专业、学位、时间，不需要课程列表。
-- 技能 / 证书：用分号分隔，只写具体技能或证书名称。
-- 荣誉奖项：每项格式为“奖项名称（级别）”，用分号分隔，不展开描述。
-- 个人简况（personal_intro）只概括学历背景、核心技能和成就。
+硬性输出约束：
+- 只返回一个 JSON 对象，所有上述 key 必须作为**顶层字段**平铺出现（不要嵌套在 fc_user_profile、fc_resume 等子对象里）。
+- 不要 Markdown 标记或解释文字。
 """
 
 USER_PROMPT_TEMPLATE = (

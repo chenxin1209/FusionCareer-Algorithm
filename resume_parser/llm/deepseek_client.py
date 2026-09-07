@@ -35,6 +35,12 @@ class DeepSeekClient:
             base_url=base_url.rstrip("/"),
         )
         self._model = model
+        self.last_usage: dict[str, int] = {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+            "api_calls": 0,
+        }
 
     def parse_resume_to_dict(self, resume_text: str) -> dict[str, Any]:
         """
@@ -51,6 +57,12 @@ class DeepSeekClient:
 
     def _complete_json(self, messages: list[dict[str, Any]]) -> dict[str, Any]:
         last_raw = ""
+        self.last_usage = {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+            "api_calls": 0,
+        }
 
         for attempt in range(2):
             try:
@@ -62,6 +74,18 @@ class DeepSeekClient:
                 )
             except Exception as e:
                 raise RuntimeError(f"DeepSeek API call failed: {e}") from e
+
+            usage = getattr(resp, "usage", None)
+            self.last_usage["prompt_tokens"] += int(
+                getattr(usage, "prompt_tokens", 0) or 0
+            )
+            self.last_usage["completion_tokens"] += int(
+                getattr(usage, "completion_tokens", 0) or 0
+            )
+            self.last_usage["total_tokens"] += int(
+                getattr(usage, "total_tokens", 0) or 0
+            )
+            self.last_usage["api_calls"] += 1
 
             choice = resp.choices[0] if resp.choices else None
             if not choice or not choice.message or choice.message.content is None:
