@@ -27,6 +27,12 @@ all_positions.csv.bak*
 **/all_positions.json
 !sample_data/**
 
+resume_parse_export.csv
+**/resume_parse_export.csv
+data/resumes/**
+!data/resumes/sample_resumes.json
+!data/resumes/.gitkeep
+
 # --- 原始公众号文章（体量大，由爬虫产出）---
 data/articles/**
 !data/articles/.gitkeep

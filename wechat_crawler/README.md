@@ -4,8 +4,13 @@
 
 ## 固定监测清单
 
-- `gzh.txt`：每行一个 fakeid（当前 60 个）
-- `公众号名字`：与 `gzh.txt` 逐行对应的名称
+来源：`sample_data/生涯智能体信息源.xlsx` 中「就业资讯源」的 **公众号平台** 共 60 个（网站类招聘源不走本爬虫）。
+
+- `gzh.txt`：每行一个 fakeid（60 个）
+- `公众号名字`：与 `gzh.txt` 逐行对应的显示名
+- `accounts.csv`：名称 + fakeid + 分类（复旦校内 / 985 / 传媒高校 / 其他高校）
+
+第 1 行已确认为 FDiCareer。第 2–60 行按 Excel 表从上到下对齐；若某号文章目录名对不上，到公众平台搜该号核对 fakeid 后改对应行。
 
 ## 快速开始
 
@@ -21,18 +26,30 @@ chmod +x pipeline.sh
 ./pipeline.sh sync-session   # 浏览器登录同步 token/cookie
 ./pipeline.sh bootstrap      # 每号最新 10 篇 → 公众号文章/
 ./pipeline.sh daily          # 增量监测
-./pipeline.sh install-cron   # 每天北京时间 17:00 自动 daily
+```
+
+按日期窗口抓取（老师要求的 7–8 月测试数据）：
+
+```bash
+python3 wechat_crawler.py.py range --since 2026-07-01 --until 2026-08-31
+```
+
+无公众平台登录时，抓 `seed_urls.txt` 中的公开文章：
+
+```bash
+python3 fetch_public.py --urls seed_urls.txt --out ../data/articles
 ```
 
 ## 主要文件
 
 | 路径 | 说明 |
 |------|------|
-| `wechat_crawler.py.py` | 主爬虫：`bootstrap` / `daily` / `watch` |
+| `wechat_crawler.py.py` | 主爬虫：`bootstrap` / `daily` / `watch` / `range` |
+| `fetch_public.py` | 公开 URL → Markdown（无需 token） |
+| `seed_urls.txt` | 公开测试链接 |
 | `pipeline.sh` | 流水线入口 |
 | `sync_wechat_session.py` | 同步公众平台凭证 |
 | `config.example.json` | 配置模板（复制为 `config.json`） |
-| `docs/` | 详细文档 |
 
 完整命令见 [`docs/03-终端命令手册.md`](docs/03-终端命令手册.md)。
 
