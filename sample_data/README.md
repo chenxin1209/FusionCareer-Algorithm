@@ -8,6 +8,9 @@
 
 **请勿**将大批量爬虫文章或全量 `all_positions.csv` 放在此目录外并提交。
 
+管理员端样例：`admin_jobs/`（学院内推、大实习、无年份日期）。
+给老师看的抽取 I/O 说明：`job_extract_io_for_teacher.md`、`job_extract_io_examples.jsonl`。
+
 ## 使用方式
 
 ```bash

@@ -7,6 +7,7 @@ from job_structuring.engine import (
     process_new_markdown,
     run_batch_dir,
 )
+from job_structuring.admin_parse import parse_job_text
 from job_structuring.export import export_positions_json
 from job_structuring import paths
 
@@ -19,4 +20,5 @@ __all__ = [
     "export_positions_json",
     "export_positions_xlsx",
     "PositionDedupIndex",
+    "parse_job_text",
 ]
