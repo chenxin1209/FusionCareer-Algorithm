@@ -43,6 +43,15 @@ python pipeline/run_pipeline.py
 
 输出：`data/output/all_positions.csv`、`all_positions.json`。
 
+管理员端智能解析（表单回填）：
+
+```bash
+python -m job_structuring.admin_parse --file sample_data/admin_jobs/学院内推_小实习.txt
+uvicorn job_structuring.serve:app --host 0.0.0.0 --port 9101
+```
+
+LLM 输入输出日志：`logs/llm_io/YYYY-MM-DD.jsonl`（按天，含模型输入/输出/耗时）。
+
 上传后端（可选，需配置 `backend_base_url`）：
 
 ```bash
