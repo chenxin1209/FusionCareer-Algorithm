@@ -18,11 +18,19 @@ import json
 import os
 import re
 import sys
+import time
 from typing import Any, Optional, Set, Tuple
 
 import requests
 
 from job_structuring import paths
+from job_structuring.dates import complete_date_year, current_date_prompt_line
+from job_structuring.io_log import log_llm_io
+from job_structuring.normalize import (
+    clean_company_name,
+    is_compilation_title,
+    sanitize_position_name,
+)
 
 CONFIG_FILE = "config.json"
 CSV_FILE = "all_positions.csv"
@@ -99,8 +107,11 @@ ZH_TO_CAMEL = {
     "来源类型": "sourceType",
     "来源链接": "sourceUrl",
     "单位名称": "companyName",
+    "所属公司": "companyName",
     "部门": "department",
+    "所属部门": "department",
     "岗位名称": "positionName",
+    "投递截止日期": "workEndDate",
     "岗位大类": "jobCategory",
     "岗位二级分类": "jobSubCategory",
     "招聘类型": "recruitType",
@@ -247,21 +258,28 @@ JOB_SUB_TO_PARENT = {
     "OTHER": "OTHER",
 }
 
-LLM_SYSTEM_PROMPT = """Role: 你是校园招聘结构化抽取助手。
-Task: 阅读 Markdown 推文，识别其中【每一个】独立的招聘岗位（一文多岗须拆成多条），输出 **一个 JSON 数组**（仅数组，不要外层对象）。
+LLM_SYSTEM_PROMPT = """Role: 你是校园招聘结构化抽取助手。直接输出 JSON，不要思考过程、不要解释。
+Task: 阅读招聘文本，识别其中【每一个】独立岗位（一文多岗必须拆成多条），输出 JSON 对象：{"岗位列表":[...]}。
 
 ## 输出格式（硬性）
-1. 顶层必须是 JSON List：`[ {...}, {...} ]`。
-2. 数组中每个元素是一个岗位对象；字段名必须使用下列【中文】键名（不要 camelCase）。
-3. 若文章开头/导语存在适用于全文的「报名截止日期」「统一投递方式/邮箱/网申链接」等，请把该信息写入【每一个】岗位对象的对应字段；若某一条岗位段落里有更具体的日期或投递方式，以该条为准覆盖通用值。
-4. 枚举类字段请填【中文】，且必须与下方「枚举可选中文」完全一致（不要用英文常量名，不要填 code 数字）。
-5. 数字字段：招聘人数、每周工作天数、薪资下限、薪资上限用 JSON 数字，不详用 null。
-6. 日期字段用字符串 `YYYY-MM-DD`，不详用空字符串 ""。
-7. 非招聘、无法拆出任何有效岗位时输出空数组 `[]`。
+1. 只输出一个 JSON 对象，键为「岗位列表」，值为岗位对象数组。
+2. 每个岗位对象使用下列【中文】键名（不要 camelCase）。
+3. 文首通用的报名截止、投递邮箱/网申链接，写入每一条；岗位段落有更具体值时覆盖。
+4. 枚举必须与「枚举可选中文」完全一致。
+5. 招聘人数、每周工作天数、薪资下限、薪资上限用 JSON 数字，不详用 null。
+6. 日期用 `YYYY-MM-DD`；原文只有月日时按用户消息里的当前日期补年份。不详用 ""。
+7. 非招聘或拆不出有效岗位时：{"岗位列表":[]}。
+
+## 岗位名称 / 单位名称（最容易错，必须遵守）
+- 岗位名称必须是具体岗位（如「销售管培生」「硬件研发工程师」）。
+- **禁止**把文章标题、栏目名当作岗位名称，包括：招聘岗位汇总、岗位汇总、招聘汇总、实习汇总、招聘简章、校园招聘、秋招速递。
+- 单位名称必须是用人单位名（如「珠海格力电器」），**不要**写成「珠海格力电器2027届秋季校园招聘」。
+- 「招聘岗位汇总」多企业汇编：按「每个单位 × 每个具体岗位」拆条。一家企业 3 个岗位 → 3 条。禁止整篇只输出 1 条。
+- 某企业只给了校招入口、未列岗位名时，岗位名称填「校园招聘（详见原文）」，仍须一企业一条，不得用「招聘岗位汇总」。
 
 ## 每个岗位对象须包含的键（可空串或 null，但键名要齐全）
-- 来源类型：固定填「就业资讯源爬取」
-- 来源链接：可空（脚本会从 Markdown 注入原文链接）
+- 来源类型：爬虫文固定「就业资讯源爬取」；管理员粘贴固定「平台发布」
+- 来源链接：可空
 - 单位名称
 - 部门
 - 岗位名称
@@ -271,6 +289,7 @@ Task: 阅读 Markdown 推文，识别其中【每一个】独立的招聘岗位�
 - 招聘人数
 - 工作开始日
 - 工作结束日
+- 投递截止日期
 - 每周工作天数
 - 每周工作天数类型
 - 实习总时长类型
@@ -287,7 +306,7 @@ Task: 阅读 Markdown 推文，识别其中【每一个】独立的招聘岗位�
 - 届别要求
 - 技能要求
 - 其他要求与投递说明
-- 岗位状态：新抽取且仍有效填「发布中」；正文明确已截止填「已截止」
+- 岗位状态：有效填「发布中」；正文明确已截止填「已截止」
 
 ## 枚举可选中文（须严格一致）
 - 来源类型：平台发布 | 就业资讯源爬取
@@ -300,34 +319,30 @@ Task: 阅读 Markdown 推文，识别其中【每一个】独立的招聘岗位�
 - 学历要求：本科生 | 学术硕士研究生 | 专业硕士研究生 | 硕士研究生 | 博士研究生（不限可填 ""）
 - 岗位状态：已下线 | 发布中 | 已截止
 
-## 岗位大类与二级分类（判定指南，优先遵守，慎填「其他」）
-**学术教职** + 二级：高校教职岗、博后、中学教师、升学深造（留学/保研项目）等。
-**党政机关** + 二级：
-  - 选调生、公务员、高校行政（辅导员/行政岗）；
-  - 医院、银行；
-  - **其他事业单位**：科研院所/研究院/实验室/勘测设计院、协会学会、智库、**联合国及国际组织**（WMO、WHO、世行、驻华使领馆系统、国际民航组织等）、出版社（事业编制）等——凡政府机关以外的事业性质单位均归此类，**不要**把国际组织标成「其他」大类。
-**新闻媒体** + 二级：党报央媒、地区主流媒体、其他媒体机构、自媒体/MCN。
-**企业公司** + 二级：
-  - **国央企**：中央/地方国资委体系、央企、国有大行/政策性银行总行、中国XX集团/研究院（企业法人）等；
-  - **民企**：民营有限公司/股份公司、科技创业公司、律所（合伙制企业）等；
-  - **外企**：外商独资、合资企业中明确外资品牌（如宝洁、玛氏、四大会计外资所等）。
-  凡招聘主体为「XX有限公司/股份公司/集团」且非明显央企的，默认**民企**，不要填「其他」。
-**「其他」大类**仅用于：无法归入以上四类的极少数情况；**禁止**因懒得判断而填「其他」。
+## 关键词
+- 出现「大实习」「小实习」「日常实习」「应届生招聘」「应届生摸排」时，招聘类型必须选对应项。
+- 「学院内推」不是单位名也不是岗位名，写入「其他要求与投递说明」（如「来源：学院内推」）。
 
-## 不应抽取为岗位记录的内容（须输出空数组 `[]`）
-- 校园**双选会/招聘会/专场活动**通知、邀请函、展位图、参会指南：仅有时间地点、无具体用人单位与岗位名称的；
-- 多校联合招聘会通稿、宣讲会周历/预告（无单场企业岗位详情）；
-- 就业政策宣传、生涯咨询预约、讲座培训、赛事获奖、校园文化活动、毕业手续指南等与**具体用人单位招聘**无关的推文。
+## 岗位大类与二级分类（慎填「其他」）
+**学术教职**：高校教职、博后、中学教师、升学深造。
+**党政机关**：选调生、公务员、高校行政；医院、银行；其他事业单位（科研院所/研究院/实验室、协会学会、联合国及国际组织）。国际组织不要标成「其他」大类。
+**新闻媒体**：党报央媒、地区主流媒体、其他媒体机构、自媒体。
+**企业公司**：国央企 / 民企 / 外企。主体为有限公司/股份公司且非明显央企时默认民企。
+**「其他」大类**仅用于无法归入以上四类的极少数情况。
 
-## 可抽取的情形
-- 文章含**具体单位 + 具体岗位/实习岗位名称**（含联合国实习、研究院招聘、民企校招等），按上文分类；
-- 招聘会通稿文末附**带企业名与岗位名**的招聘清单：按企业拆条，分别归类二级分类。
+## 不应抽取（岗位列表为空）
+- 双选会/招聘会/宣讲会预告且无具体单位与岗位；就业政策、讲座、校园活动等非招聘文。
 
 Rules:
-- 仅输出 JSON 数组本身，不要 markdown 代码围栏外的解释文字。
-- 「多企业汇总」类文章，每个参展/招聘单位拆成独立岗位对象（单位名称不同）。
-- 岗位大类、岗位二级分类必须成对匹配（如：企业公司+民企，党政机关+其他事业单位）；勿只填大类不填二级。
+- 只输出 JSON 对象，不要 markdown 围栏外的文字。
+- 岗位大类与二级分类必须成对匹配。
 """
+
+_COMPILATION_USER_HINT = (
+    "本文是多企业「招聘岗位汇总」。必须按每个用人单位、每个具体岗位拆成多条；"
+    "岗位名称禁止使用「招聘岗位汇总」或文章标题；"
+    "单位名称去掉「2027届秋季校园招聘」「招聘简章」等后缀，只保留单位名。"
+)
 
 
 # 旧版 LLM / CSV 字段 -> JobPost 字段
@@ -600,7 +615,10 @@ def _map_enum_value(field: str, raw: object) -> str:
 def _flatten_zh_record_to_camel(zh_obj: dict) -> dict:
     """中文键 -> camelCase 中间表示（值仍为原文或数字）。"""
     flat: dict = {}
+    apply_deadline = zh_obj.get("投递截止日期")
     for zh_k, camel in ZH_TO_CAMEL.items():
+        if zh_k == "投递截止日期":
+            continue
         if zh_k not in zh_obj:
             continue
         v = zh_obj[zh_k]
@@ -609,6 +627,13 @@ def _flatten_zh_record_to_camel(zh_obj: dict) -> dict:
         if isinstance(v, str) and not v.strip():
             continue
         flat[camel] = v
+    if apply_deadline is not None and not (
+        isinstance(apply_deadline, str) and not str(apply_deadline).strip()
+    ):
+        work_end = str(flat.get("workEndDate") or "").strip()
+        if not work_end:
+            flat["workEndDate"] = apply_deadline
+        flat["applyDeadline"] = apply_deadline
     for camel in POSITION_FIELDNAMES:
         if camel in ("source_md",):
             continue
@@ -791,6 +816,15 @@ def _zh_item_to_job_row(
             row[key] = _normalize_field(flat.get("status")) or "PUBLISHED"
         else:
             row[key] = _normalize_field(flat.get(key))
+    row["companyName"] = clean_company_name(row.get("companyName", ""))
+    row["positionName"] = sanitize_position_name(row.get("positionName", ""))
+    row["workStartDate"] = complete_date_year(row.get("workStartDate"), kind="start")
+    row["workEndDate"] = complete_date_year(row.get("workEndDate"), kind="deadline")
+    apply_deadline = complete_date_year(flat.get("applyDeadline"), kind="deadline")
+    if apply_deadline:
+        row["applyDeadline"] = apply_deadline
+        if not row.get("workEndDate"):
+            row["workEndDate"] = apply_deadline
     return row
 
 
@@ -958,7 +992,29 @@ def deduplicate_csv_file(csv_path: Optional[str] = None) -> Tuple[int, int]:
     return before, after
 
 
-def _llm_chat(messages: list, config: dict) -> Optional[str]:
+def _resolve_chat_model(config: dict, prefer_fast: bool = False) -> str:
+    model = (config.get("llm_model") or "deepseek-chat").strip()
+    fast = (config.get("llm_fast_model") or "deepseek-chat").strip()
+    if prefer_fast:
+        return fast or "deepseek-chat"
+    low = model.lower()
+    if any(x in low for x in ("reasoner", "r1", "thinking")):
+        return fast or "deepseek-chat"
+    return model or "deepseek-chat"
+
+
+def _llm_chat(
+    messages: list,
+    config: dict,
+    *,
+    json_object: bool = True,
+    max_tokens: Optional[int] = None,
+    prefer_fast: bool = False,
+    log_channel: str = "crawl",
+    log_title: str = "",
+    log_source: str = "",
+    timeout: Optional[int] = None,
+) -> Optional[str]:
     key = (
         config.get("llm_api_key")
         or os.environ.get("DEEPSEEK_API_KEY")
@@ -970,23 +1026,70 @@ def _llm_chat(messages: list, config: dict) -> Optional[str]:
         return None
 
     base = (config.get("llm_base_url") or "https://api.deepseek.com/v1").rstrip("/")
-    model = config.get("llm_model") or "deepseek-chat"
+    model = _resolve_chat_model(config, prefer_fast=prefer_fast)
     url = f"{base}/chat/completions"
+    timeout = int(timeout or config.get("llm_timeout_seconds") or 180)
 
-    payload = {
+    payload: dict[str, Any] = {
         "model": model,
         "messages": messages,
-        "temperature": 0.2,
+        "temperature": float(config.get("llm_temperature") if config.get("llm_temperature") is not None else 0.1),
     }
+    if json_object:
+        payload["response_format"] = {"type": "json_object"}
+    if max_tokens:
+        payload["max_tokens"] = int(max_tokens)
+    extra = config.get("llm_extra_body")
+    if isinstance(extra, dict):
+        payload.update(extra)
+    elif config.get("llm_send_disable_thinking"):
+        payload["enable_thinking"] = False
+        payload["thinking"] = {"type": "disabled"}
+
     headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+    started = time.perf_counter()
+    raw_out = None
+    ok = False
+    usage: dict[str, Any] = {}
     try:
-        r = requests.post(url, headers=headers, json=payload, timeout=180)
+        r = requests.post(url, headers=headers, json=payload, timeout=timeout)
+        if r.status_code == 400 and (
+            "enable_thinking" in payload or "thinking" in payload
+        ):
+            payload.pop("enable_thinking", None)
+            payload.pop("thinking", None)
+            r = requests.post(url, headers=headers, json=payload, timeout=timeout)
         r.raise_for_status()
         data = r.json()
-        return data["choices"][0]["message"]["content"]
+        raw_out = data["choices"][0]["message"]["content"]
+        u = data.get("usage") or {}
+        usage = {
+            "prompt_tokens": u.get("prompt_tokens"),
+            "completion_tokens": u.get("completion_tokens"),
+            "total_tokens": u.get("total_tokens"),
+        }
+        ok = True
+        return raw_out
     except Exception as e:
         print(f"  [structure_data] LLM 请求失败: {e}")
+        raw_out = f"[error] {e}"
         return None
+    finally:
+        duration_ms = int((time.perf_counter() - started) * 1000)
+        try:
+            log_llm_io(
+                channel=log_channel,
+                model=model,
+                article_title=log_title,
+                source=log_source,
+                duration_ms=duration_ms,
+                messages=messages,
+                output=raw_out or "",
+                ok=ok,
+                usage=usage or None,
+            )
+        except Exception as log_err:
+            print(f"  [structure_data] 写入 LLM I/O 日志失败: {log_err}")
 
 
 def _normalize_field(v) -> str:
@@ -1219,14 +1322,29 @@ def process_new_markdown(
         if loaded:
             print(f"  [structure_data] 已加载 CSV 去重索引 {loaded} 条")
 
-    user = (
-        f"文章标题：{article_title}\n\n"
-        f"以下为文章 Markdown：\n\n{md_text[:28000]}"
-    )
+    compilation = is_compilation_title(article_title, md_text[:800])
+    if compilation:
+        print(f"  [structure_data] 汇总文拆岗模式: {article_title}")
+    user_parts = [
+        current_date_prompt_line(),
+        f"文章标题：{article_title}",
+        "【重要】岗位名称禁止使用上述文章标题；单位名称不要带「校园招聘/招聘简章」后缀。",
+        "来源类型填「就业资讯源爬取」。直接输出 JSON 对象 {\"岗位列表\":[...]}，不要思考过程。",
+    ]
+    if compilation:
+        user_parts.append(_COMPILATION_USER_HINT)
+    user_parts.append(f"以下为文章 Markdown：\n\n{md_text[:28000]}")
+    user = "\n\n".join(user_parts)
 
     content = _llm_chat(
         [{"role": "system", "content": LLM_SYSTEM_PROMPT}, {"role": "user", "content": user}],
         config,
+        json_object=True,
+        max_tokens=int(config.get("llm_max_tokens") or 8192),
+        prefer_fast=True,
+        log_channel="crawl",
+        log_title=article_title,
+        log_source=md_path,
     )
     if content is None:
         return
