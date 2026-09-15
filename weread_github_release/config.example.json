@@ -1,0 +1,10 @@
+{
+    "min_file_size_kb": 0,
+    "delete_small_files": false,
+    "bootstrap_article_limit": 10,
+    "articles_base_dir": "公众号文章",
+    "daily_report_path": "daily_report.jsonl",
+    "daily_folder_suffix": "新增",
+    "daily_summary_filename": "新增统计.md",
+    "daily_mirror_to_dated_folder": true
+}
