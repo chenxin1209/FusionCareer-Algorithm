@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from job_recommend.dialogue import next_turn
 from job_recommend.rank import rank_jobs
 
-app = FastAPI(title="FusionCareer Job Recommend", version="1.0.0")
+app = FastAPI(title="FusionCareer Job Recommend", version="1.1.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -24,6 +24,8 @@ class TurnRequest(BaseModel):
     user_text: str = ""
     slots: Optional[dict[str, Any]] = None
     resume: Optional[dict[str, Any]] = None
+    # 选项卡片回传：{"recruitType":"BIG_INTERNSHIP","jobCategory":"ENTERPRISE"}
+    selections: Optional[dict[str, Any]] = None
 
 
 class RankRequest(BaseModel):
@@ -40,7 +42,7 @@ def health():
 
 @app.post("/internal/job/recommend/turn")
 def recommend_turn(req: TurnRequest):
-    turn = next_turn(req.user_text, req.slots, req.resume)
+    turn = next_turn(req.user_text, req.slots, req.resume, req.selections)
     return {"code": 200, "message": "success", "data": turn.to_dict()}
 
 

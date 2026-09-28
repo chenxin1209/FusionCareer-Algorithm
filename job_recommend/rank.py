@@ -5,7 +5,12 @@ import json
 from typing import Any, Optional
 
 from job_structuring.engine import _llm_chat, load_config
-from job_recommend.filters import city_matches, _job_text
+from job_recommend.filters import (
+    _job_text,
+    city_matches,
+    filter_published,
+    is_weekly_recommend,
+)
 
 
 def _g(job: dict[str, Any], *keys: str) -> str:
@@ -16,14 +21,22 @@ def _g(job: dict[str, Any], *keys: str) -> str:
     return ""
 
 
+def _keyword_list(slots: dict[str, Any]) -> list[str]:
+    kw_obj = slots.get("keywords") if isinstance(slots.get("keywords"), dict) else {}
+    items = list(kw_obj.get("all") or slots.get("keywordList") or [])
+    if not items and slots.get("keyword"):
+        items = [str(slots.get("keyword"))]
+    return [k for k in items if k]
+
+
 def _rule_score(job: dict[str, Any], slots: dict[str, Any], resume: Optional[dict[str, Any]] = None) -> int:
     score = 0
     resume = resume or {}
-    pos = _g(job, "positionName", "position_name")
     recruit = _g(job, "recruitType", "recruit_type")
     cat = _g(job, "jobCategory", "job_category")
-    if slots.get("workCity"):
-        if city_matches(job, slots["workCity"]):
+    cities = slots.get("workCities") or slots.get("workCity")
+    if cities:
+        if city_matches(job, cities):
             score += 6
         elif not _g(job, "workCity", "work_city"):
             score += 1
@@ -31,18 +44,20 @@ def _rule_score(job: dict[str, Any], slots: dict[str, Any], resume: Optional[dic
         score += 4
     if slots.get("jobCategory") and slots["jobCategory"] == cat:
         score += 2
-    kw = slots.get("keyword") or ""
     blob = _job_text(job)
-    if kw and (kw in pos or kw in blob):
-        score += 5
+    pos = _g(job, "positionName", "position_name")
+    hits = 0
+    for kw in _keyword_list(slots):
+        if kw and (kw in pos or kw in blob):
+            hits += 1
+    if hits:
+        score += min(5, 2 + hits)
     major = str(resume.get("major") or "")
     req_major = _g(job, "reqMajor", "req_major")
     if major and (major in req_major or "新闻" in req_major or "传播" in req_major):
         score += 3
-    if str(job.get("status") or "") in ("PUBLISHED", "发布中", "1"):
+    if is_weekly_recommend(job):
         score += 1
-    if any(x in pos for x in ("记者", "编辑", "新媒体", "融媒体", "编导", "采编")):
-        score += 2
     return score
 
 
@@ -56,23 +71,23 @@ def rank_jobs(
     config: Optional[dict] = None,
 ) -> dict[str, Any]:
     """
-    jobs 条数不固定：先规则打分截断，再让 LLM 只看前 max_llm_jobs 条。
+    先硬过滤发布中，再规则打分截断，LLM 只看前 max_llm_jobs 条。
     """
     slots = slots or {}
     resume = resume or {}
-    scored = []
-    for j in jobs:
-        scored.append(( _rule_score(j, slots, resume), j))
+    published = filter_published(jobs)
+    scored = [(_rule_score(j, slots, resume), j) for j in published]
     scored.sort(key=lambda x: -x[0])
     ordered = [j for _, j in scored]
-    preview = ordered[: max(1, max_llm_jobs)]
+    preview = ordered[: max(1, max_llm_jobs)] if ordered else []
 
     if not use_llm or not preview:
         return {
             "jobs": ordered,
             "method": "rules",
             "considered": len(preview),
-            "total": len(jobs),
+            "total": len(published),
+            "dropped_unpublished": max(0, len(jobs) - len(published)),
         }
 
     cfg = config if config is not None else load_config()
@@ -81,17 +96,23 @@ def rank_jobs(
         slim.append(
             {
                 "id": j.get("id"),
-                "positionName": j.get("positionName"),
-                "companyName": j.get("companyName"),
-                "workCity": j.get("workCity"),
-                "recruitType": j.get("recruitType"),
-                "jobCategory": j.get("jobCategory"),
-                "reqMajor": j.get("reqMajor"),
-                "reqEduLevel": j.get("reqEduLevel"),
+                "positionName": j.get("positionName") or j.get("position_name"),
+                "companyName": j.get("companyName") or j.get("company_name"),
+                "workCity": j.get("workCity") or j.get("work_city"),
+                "recruitType": j.get("recruitType") or j.get("recruit_type"),
+                "jobCategory": j.get("jobCategory") or j.get("job_category"),
+                "reqMajor": j.get("reqMajor") or j.get("req_major"),
+                "reqEduLevel": j.get("reqEduLevel") or j.get("req_edu_level"),
+                "weeklyRecommend": is_weekly_recommend(j),
             }
         )
     user = {
-        "slots": slots,
+        "slots": {
+            "recruitType": slots.get("recruitType"),
+            "jobCategory": slots.get("jobCategory"),
+            "workCities": slots.get("workCities") or slots.get("workCity"),
+            "keywords": _keyword_list(slots),
+        },
         "resume": {
             "major": resume.get("major"),
             "eduLevel": resume.get("edu_level") or resume.get("eduLevel"),
@@ -105,7 +126,8 @@ def rank_jobs(
             "role": "system",
             "content": (
                 "你是就业岗位排序助手。只根据求职相关信息给岗位排序。"
-                "输出 JSON：{\"order\":[id或索引],\"reasons\":[\"一句理由\"]}。"
+                "学院本周推荐可略微靠前。输出 JSON："
+                "{\"order\":[id或索引],\"reasons\":[\"一句理由\"]}。"
                 "不要闲聊，不要编造岗位。"
             ),
         },
@@ -150,5 +172,6 @@ def rank_jobs(
         "jobs": preview + tail,
         "method": "rules+llm",
         "considered": len(preview),
-        "total": len(jobs),
+        "total": len(published),
+        "dropped_unpublished": max(0, len(jobs) - len(published)),
     }
