@@ -76,4 +76,39 @@ uvicorn job_structuring.serve:app --host 0.0.0.0 --port 9101
 
 亦可：`export DEEPSEEK_API_KEY=sk-your-deepseek-key`
 
+**测试与线上 Key 必须分开**：本地/评测用测试 Key；服务器 `config.json` 与 Agent 环境变量只保留线上 Key，便于统计线上消耗。不要把测试 Key 写进仓库或生产配置。
+
 不要把 `llm_model` 配成 `deepseek-reasoner`：管理员解析会等待过久。若必须关掉思考链，可设 `"llm_send_disable_thinking": true`（部分兼容网关支持）。
+
+## 7. 按日 × 数据源统计
+
+老师要求的线上表（各源文件数、抽取岗位数、新闻学院相关岗位数）：
+
+```bash
+python pipeline/report_source_stats.py --root /data/wechat --out data/output/source_stats
+```
+
+产出 `daily_source_stats.csv`、`source_totals.csv`。新闻学院相关为关键词启发式，删数据源前需抽检。
+
+## 8. 抽岗前关键词预筛（降本）
+
+默认在调用 LLM **之前**用规则扫原文：未命中本院专业名 / 相关岗位名 / 媒体词则跳过，不消耗 token。
+
+```bash
+python -m job_structuring.prefilter --file sample_data/admin_jobs/学院内推_小实习.txt
+python -m job_structuring.prefilter --dir data/articles
+```
+
+词表：`job_structuring/data/relevance_lexicon.json`。可把「生涯智能体信息源.xlsx」路径写入 `config.json` 的 `relevance_titles_xlsx`。关闭预筛：`"prefilter_enabled": false`。
+
+## 9. 人岗推荐（对话筛选 + 排序）
+
+与后端现有 `JobPostQueryRequest` 对齐：`recruitType`、`keyword`、`workCity`（需后端改为包含匹配）、`workMode`、`status`。  
+2026-09-28 生产快照：发布中 681 条，**新闻媒体大类仅 2 条**，相关岗多用关键词打；城市精确等于会漏掉「上海市 / 北京、上海」。详见 `job_recommend/data/published_facets_20260928.json`。
+
+```bash
+uvicorn job_recommend.serve:app --host 0.0.0.0 --port 9102
+```
+
+- `POST /internal/job/recommend/turn` 多轮问询，满槽返回 `handoff.query`
+- 后端按 query 拉岗后 `POST /internal/job/recommend/rank`（先规则分、最多送 15 条给 LLM）

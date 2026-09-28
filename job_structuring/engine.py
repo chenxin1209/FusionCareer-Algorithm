@@ -31,6 +31,7 @@ from job_structuring.normalize import (
     is_compilation_title,
     sanitize_position_name,
 )
+from job_structuring.prefilter import should_extract
 
 CONFIG_FILE = "config.json"
 CSV_FILE = "all_positions.csv"
@@ -1310,6 +1311,14 @@ def process_new_markdown(
     skip_reason = _title_skip_reason(article_title)
     if skip_reason:
         _log_skip_article(md_path, skip_reason, article_title)
+        return
+
+    pref = should_extract(md_text, article_title, config)
+    if pref.get("skipped"):
+        _log_skip_article(md_path, pref.get("reason") or "关键词预筛未命中", article_title)
+        print(
+            f"  [structure_data] 预筛未命中，跳过 LLM（词表 {pref.get('term_count')}）: {article_title}"
+        )
         return
 
     article_link = _article_link_from_md(md_text)
