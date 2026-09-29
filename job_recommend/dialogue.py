@@ -65,23 +65,25 @@ def _option_card(slot: str, prompt: str, options: list[dict[str, str]]) -> dict[
 
 def _cards_for_slot(slot: str) -> Optional[dict[str, Any]]:
     if slot == "recruitType":
-        return _option_card("recruitType", "请选择招聘类型", RECRUIT_OPTIONS)
+        return _option_card("recruitType", "你更想看哪一类机会？", RECRUIT_OPTIONS)
     if slot == "jobCategory":
-        return _option_card("jobCategory", "请选择岗位类型", CATEGORY_OPTIONS)
+        return _option_card("jobCategory", "单位类型有没有偏好？", CATEGORY_OPTIONS)
     return None
 
 
-def _prompt_for_slot(slot: str) -> str:
+def _prompt_for_slot(slot: str, *, opening: bool = False) -> str:
     if slot == "recruitType":
-        return "请选择招聘类型（点选卡片即可）。"
+        if opening:
+            return "嗨，我来帮你在平台上找找合适的岗位。先点一下你现在更想看哪一类？大实习、小实习、日常实习还是校招都可，暂时不确定就选「不限」。"
+        return "你现在更想找哪种机会呀？点一下就行，不确定也可以选「不限」。"
     if slot == "jobCategory":
-        return "请选择岗位类型（点选卡片即可）。"
+        return "单位这边有没有更想去的类型？企业、机关、媒体、教职都可以，没有偏好选「不限」就好。"
     if slot == "workCities":
-        return "希望在哪些城市工作？可以一次说多个，例如「上海、杭州」或「北上广」；不限也可以。"
+        return "想去哪些城市看看？可以说好几个，比如上海、杭州，或者说北上广。全国都可以也行。"
     if slot == "keywords":
         return (
-            "想找的岗位方向，以及自己比较突出的能力？"
-            "例如记者、产品、市场，或中共党员、摄影、视频剪辑。没有可以说「没有」。"
+            "再跟你对两句就好：大概想做哪类岗位，以及自己比较拿手的地方？"
+            "比如记者、产品、市场，或者摄影、视频剪辑、党员身份。没有也完全没关系，回我「没有」就行。"
         )
     return ""
 
@@ -212,7 +214,7 @@ def next_turn(
 
     if text and is_off_topic(text):
         return RecommendTurn(
-            assistant="我只能协助就业求职：筛选和推荐岗位。请选择招聘类型，或告诉我希望的城市。",
+            assistant="我这边主要是帮你找实习和校招岗位的。你想看哪一类机会，或者想去哪个城市，跟我说一声就行。",
             ready=False,
             filter=None,
             slots=slots,
@@ -233,10 +235,8 @@ def next_turn(
     waiting = _next_missing_slot(slots)
     if waiting:
         ui = _cards_for_slot(waiting)
-        prefix = ""
-        if not any(k in slots for k in SLOT_ORDER) and not text and not selections:
-            prefix = "我可以根据你的简历和几句选择，从平台已发布岗位里帮你筛。"
-        msg = prefix + _prompt_for_slot(waiting)
+        opening = not any(k in slots for k in SLOT_ORDER) and not text and not selections
+        msg = _prompt_for_slot(waiting, opening=opening)
         return RecommendTurn(
             assistant=msg,
             ready=False,
@@ -247,7 +247,7 @@ def next_turn(
 
     filt = query_from_slots(slots)
     return RecommendTurn(
-        assistant="筛选条件已经齐了，我去库里拉一批已发布岗位再按你的情况排序。",
+        assistant="好的，我去帮你看看平台上正在招的岗位，按你的情况排个序。稍等一下～",
         ready=True,
         filter=filt,
         slots=slots,
