@@ -103,12 +103,12 @@ python -m job_structuring.prefilter --dir data/articles
 
 ## 9. 人岗推荐（对话筛选 + 排序）
 
-与后端现有 `JobPostQueryRequest` 对齐：`recruitType`、`keyword`、`workCity`（需后端改为包含匹配）、`workMode`、`status`。  
-2026-09-28 生产快照：发布中 681 条，**新闻媒体大类仅 2 条**，相关岗多用关键词打；城市精确等于会漏掉「上海市 / 北京、上海」。详见 `job_recommend/data/published_facets_20260928.json`。
+招聘类型、岗位类型由前端 **选项卡片** 回传枚举值（`selections`），不要让用户打字。城市支持一次多个；关键词 = 岗位方向 + 个人能力，请对岗位名和描述全文 OR。`status=PUBLISHED` 是硬过滤。学院本周推荐岗位排序 +1。
 
 ```bash
 uvicorn job_recommend.serve:app --host 0.0.0.0 --port 9102
 ```
 
-- `POST /internal/job/recommend/turn` 多轮问询，满槽返回 `handoff.query`
-- 后端按 query 拉岗后 `POST /internal/job/recommend/rank`（先规则分、最多送 15 条给 LLM）
+- `POST /internal/job/recommend/turn`：响应里的 `ui.type=option_cards` 请渲染卡片，把 `value` 放进下次请求的 `selections`
+- 满槽后 `handoff.query` + `handoff.extra.workCities` / `extra.keywords` 调 list
+- `POST /internal/job/recommend/rank`：先丢掉非发布中，规则分后再最多送 15 条给 LLM
