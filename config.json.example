@@ -20,6 +20,8 @@
   "relevance_titles_csv": "",
   "relevance_titles_xlsx": "生涯智能体信息源.xlsx",
   "company_score_enabled": true,
+  "recommend_log_enabled": true,
+  "recommend_log_dir": "logs/recommend",
   "backend_base_url": "http://localhost:9100",
   "job_post_batch_path": "/internal/job-post/batch",
   "job_post_list_path": "/internal/job-post/list",
