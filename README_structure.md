@@ -111,4 +111,5 @@ uvicorn job_recommend.serve:app --host 0.0.0.0 --port 9102
 
 - `POST /internal/job/recommend/turn`：响应里的 `ui.type=option_cards` 请渲染卡片，把 `value` 放进下次请求的 `selections`
 - 满槽后 `handoff.query` + `handoff.extra.workCities` / `extra.keywords` 调 list
-- `POST /internal/job/recommend/rank`：先丢掉非发布中，规则分后再最多送 15 条给 LLM
+- `POST /internal/job/recommend/rank`：丢掉非发布中和技术岗；企业公司按东方财富市值加减分；每条带 `recommendReason` 给卡片
+- 抽岗：纯软件开发/人工智能/机器人专场若无新闻传播信号会跳过 LLM；抽出的技术岗名不会入库
