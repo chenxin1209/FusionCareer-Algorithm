@@ -2,17 +2,19 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from typing import Any, Optional
 
 from job_structuring.engine import _llm_chat, load_config
 from job_structuring.prefilter import is_irrelevant_tech_job
-from job_recommend.company_score import flush_company_cache, score_enterprise
+from job_recommend.company_score import _norm_company, flush_company_cache, score_enterprise
 from job_recommend.filters import (
     _job_text,
     city_matches,
     filter_published,
     is_weekly_recommend,
 )
+from job_recommend.recommend_log import log_recommend
 
 _RECRUIT_ZH = {
     "BIG_INTERNSHIP": "大实习",
@@ -39,26 +41,72 @@ def _keyword_list(slots: dict[str, Any]) -> list[str]:
     return [k for k in items if k]
 
 
-def _rule_score(
+def _created_ts(job: dict[str, Any]) -> float:
+    for k in (
+        "createdAt",
+        "created_at",
+        "createTime",
+        "create_time",
+        "gmtCreate",
+        "publishTime",
+        "publishedAt",
+        "updatedAt",
+        "updated_at",
+    ):
+        raw = job.get(k)
+        if raw in (None, ""):
+            continue
+        if isinstance(raw, (int, float)):
+            v = float(raw)
+            return v / 1000.0 if v > 1e12 else v
+        text = str(raw).strip()
+        try:
+            return datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            pass
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+            try:
+                return datetime.strptime(text[:19], fmt).timestamp()
+            except ValueError:
+                continue
+    return 0.0
+
+
+def _company_key(job: dict[str, Any]) -> str:
+    name = _g(job, "companyName", "company_name")
+    key = _norm_company(name)
+    return key or f"__anon_{id(job)}"
+
+
+def _score_parts(
     job: dict[str, Any],
     slots: dict[str, Any],
     resume: Optional[dict[str, Any]] = None,
     company: Optional[dict[str, Any]] = None,
-) -> int:
-    score = 0
+) -> tuple[int, dict[str, int]]:
+    """返回总分和各项加减分，便于审计日志对照。"""
     resume = resume or {}
+    parts = {
+        "city": 0,
+        "recruitType": 0,
+        "jobCategory": 0,
+        "keywords": 0,
+        "major": 0,
+        "weeklyRecommend": 0,
+        "company_score": 0,
+    }
     recruit = _g(job, "recruitType", "recruit_type")
     cat = _g(job, "jobCategory", "job_category")
     cities = slots.get("workCities") or slots.get("workCity")
     if cities:
         if city_matches(job, cities):
-            score += 6
+            parts["city"] = 6
         elif not _g(job, "workCity", "work_city"):
-            score += 1
+            parts["city"] = 1
     if slots.get("recruitType") and slots["recruitType"] == recruit:
-        score += 4
+        parts["recruitType"] = 4
     if slots.get("jobCategory") and slots["jobCategory"] == cat:
-        score += 2
+        parts["jobCategory"] = 2
     blob = _job_text(job)
     pos = _g(job, "positionName", "position_name")
     hits = 0
@@ -66,16 +114,65 @@ def _rule_score(
         if kw and (kw in pos or kw in blob):
             hits += 1
     if hits:
-        score += min(5, 2 + hits)
+        parts["keywords"] = min(5, 2 + hits)
     major = str(resume.get("major") or "")
     req_major = _g(job, "reqMajor", "req_major")
     if major and (major in req_major or "新闻" in req_major or "传播" in req_major):
-        score += 3
+        parts["major"] = 3
     if is_weekly_recommend(job):
-        score += 1
+        parts["weeklyRecommend"] = 1
     if company:
-        score += int(company.get("score_delta") or 0)
-    return score
+        parts["company_score"] = int(company.get("score_delta") or 0)
+    total = int(sum(parts.values()))
+    return total, parts
+
+
+def _rule_score(
+    job: dict[str, Any],
+    slots: dict[str, Any],
+    resume: Optional[dict[str, Any]] = None,
+    company: Optional[dict[str, Any]] = None,
+) -> int:
+    total, _ = _score_parts(job, slots, resume, company)
+    return total
+
+
+def _keep_priority(
+    job: dict[str, Any],
+    slots: dict[str, Any],
+    resume: Optional[dict[str, Any]] = None,
+) -> tuple:
+    """同公司多岗时留下更匹配、更新的那一条（不含公司市值分）。"""
+    total, parts = _score_parts(job, slots, resume, None)
+    return (
+        parts["weeklyRecommend"],
+        parts["keywords"],
+        parts["recruitType"],
+        parts["city"],
+        _created_ts(job),
+        total,
+    )
+
+
+def dedupe_one_per_company(
+    jobs: list[dict[str, Any]],
+    slots: dict[str, Any],
+    resume: Optional[dict[str, Any]] = None,
+) -> tuple[list[dict[str, Any]], int]:
+    """关键词筛完后同一公司只留一条，避免第一页被同一家占满。"""
+    best: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+    dropped = 0
+    for job in jobs:
+        key = _company_key(job)
+        if key not in best:
+            best[key] = job
+            order.append(key)
+            continue
+        dropped += 1
+        if _keep_priority(job, slots, resume) > _keep_priority(best[key], slots, resume):
+            best[key] = job
+    return [best[k] for k in order], dropped
 
 
 def _rule_reason(
@@ -134,15 +231,18 @@ def rank_jobs(
     use_llm: bool = True,
     max_llm_jobs: int = 15,
     config: Optional[dict] = None,
+    user_text: str = "",
 ) -> dict[str, Any]:
     """
-    先硬过滤发布中和技术岗，企业公司按东方财富市值加减分，
+    先硬过滤发布中和技术岗，同一公司只留一条，
+    企业公司按东方财富市值加减分（阈值先不动，分数写入日志），
     每条岗位带 recommendReason 供卡片展示。
     """
     slots = slots or {}
     resume = resume or {}
+    cfg = config if config is not None else load_config()
     published = filter_published(jobs)
-    kept = []
+    after_tech = []
     dropped_tech = 0
     for j in published:
         pos = _g(j, "positionName", "position_name")
@@ -150,29 +250,39 @@ def rank_jobs(
         if is_irrelevant_tech_job(pos, desc):
             dropped_tech += 1
             continue
-        kept.append(j)
+        after_tech.append(j)
+    kept, dropped_same_company = dedupe_one_per_company(after_tech, slots, resume)
 
     cache: dict[str, Any] = {}
     company_by_id: dict[int, dict[str, Any]] = {}
+    score_by_id: dict[int, tuple[int, dict[str, int]]] = {}
     scored = []
-    lookups = 0
+    score_enabled = cfg.get("company_score_enabled", True) is not False
     for j in kept:
-        info = None
+        info: dict[str, Any]
         cat = _g(j, "jobCategory", "job_category")
-        if cat in ("ENTERPRISE", "企业公司", "OTHER", "其他", ""):
-            if lookups < 20:
-                info = score_enterprise(j, cache=cache)
-                lookups += 1
-            else:
-                info = {
-                    "listed": False,
-                    "market_cap_yi": None,
-                    "score_delta": 0,
-                    "label": "",
-                    "source": "capped",
-                }
-        company_by_id[id(j)] = info or {}
-        scored.append((_rule_score(j, slots, resume, info), j))
+        if not score_enabled:
+            info = {
+                "listed": False,
+                "market_cap_yi": None,
+                "score_delta": 0,
+                "label": "",
+                "source": "disabled",
+            }
+        elif cat in ("GOVERNMENT", "ACADEMIC", "MEDIA", "党政机关", "学术教职", "新闻媒体"):
+            info = {
+                "listed": False,
+                "market_cap_yi": None,
+                "score_delta": 0,
+                "label": "",
+                "source": "skipped",
+            }
+        else:
+            info = score_enterprise(j, cache=cache)
+        company_by_id[id(j)] = info
+        total, parts = _score_parts(j, slots, resume, info)
+        score_by_id[id(j)] = (total, parts)
+        scored.append((total, j))
     if cache:
         flush_company_cache(cache)
     scored.sort(key=lambda x: -x[0])
@@ -182,7 +292,6 @@ def rank_jobs(
     llm_reasons: dict[Any, str] = {}
     method = "rules"
     if use_llm and preview:
-        cfg = config if config is not None else load_config()
         slim = []
         for j in preview:
             info = company_by_id.get(id(j)) or {}
@@ -271,11 +380,58 @@ def rank_jobs(
     preview_ids = {id(j) for j in preview}
     tail = [j for j in ordered if id(j) not in preview_ids]
     cards: list[dict[str, Any]] = []
+    score_rows: list[dict[str, Any]] = []
     for idx, j in enumerate(preview + tail):
         info = company_by_id.get(id(j)) or {}
+        total, parts = score_by_id.get(id(j)) or _score_parts(j, slots, resume, info)
         key = str(j.get("id") if j.get("id") is not None else idx)
         reason = llm_reasons.get(key) or _rule_reason(j, slots, resume, info)
-        cards.append(_attach_card_fields(j, reason, info))
+        card = _attach_card_fields(j, reason, info)
+        card["_recommendTotal"] = total
+        cards.append(card)
+        score_rows.append(
+            {
+                "id": j.get("id"),
+                "companyName": _g(j, "companyName", "company_name"),
+                "positionName": _g(j, "positionName", "position_name"),
+                "total": total,
+                "city": parts["city"],
+                "recruitType": parts["recruitType"],
+                "jobCategory": parts["jobCategory"],
+                "keywords": parts["keywords"],
+                "major": parts["major"],
+                "weeklyRecommend": parts["weeklyRecommend"],
+                "company_score": parts["company_score"],
+                "company_listed": bool(info.get("listed")),
+                "company_market_cap_yi": info.get("market_cap_yi"),
+                "company_label": info.get("label") or "",
+                "company_source": info.get("source") or "",
+                "final": idx < len(preview),
+            }
+        )
+    try:
+        log_recommend(
+            slots=slots,
+            resume=resume,
+            user_text=user_text,
+            score_rows=score_rows,
+            final_jobs=cards[: max(1, max_llm_jobs)] if cards else [],
+            extra={
+                "method": method,
+                "incoming": len(jobs),
+                "published": len(published),
+                "after_tech": len(after_tech),
+                "after_company_dedupe": len(kept),
+                "dropped_unpublished": max(0, len(jobs) - len(published)),
+                "dropped_tech": dropped_tech,
+                "dropped_same_company": dropped_same_company,
+            },
+            config=cfg,
+        )
+    except OSError:
+        pass
+    for c in cards:
+        c.pop("_recommendTotal", None)
     return {
         "jobs": cards,
         "method": method,
@@ -283,4 +439,5 @@ def rank_jobs(
         "total": len(kept),
         "dropped_unpublished": max(0, len(jobs) - len(published)),
         "dropped_tech": dropped_tech,
+        "dropped_same_company": dropped_same_company,
     }

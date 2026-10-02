@@ -32,6 +32,7 @@ class RankRequest(BaseModel):
     jobs: list[dict[str, Any]] = Field(default_factory=list)
     slots: Optional[dict[str, Any]] = None
     resume: Optional[dict[str, Any]] = None
+    user_text: str = ""
     use_llm: bool = True
 
 
@@ -48,5 +49,11 @@ def recommend_turn(req: TurnRequest):
 
 @app.post("/internal/job/recommend/rank")
 def recommend_rank(req: RankRequest):
-    data = rank_jobs(req.jobs, req.slots, req.resume, use_llm=req.use_llm)
+    data = rank_jobs(
+        req.jobs,
+        req.slots,
+        req.resume,
+        use_llm=req.use_llm,
+        user_text=req.user_text,
+    )
     return {"code": 200, "message": "success", "data": data}

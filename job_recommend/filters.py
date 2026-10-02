@@ -129,7 +129,7 @@ class JobFilterQuery:
         """给 Java list 的 JSON。多城市不写单一 workCity，避免 eq 漏检。"""
         out: dict[str, Any] = {
             "page": self.page,
-            "size": min(max(self.size, 1), 50),
+            "size": min(max(self.size, 1), 80),
             "status": self.status or "PUBLISHED",
         }
         for key in (
@@ -153,6 +153,7 @@ class JobFilterQuery:
 
     def to_handoff(self) -> dict[str, Any]:
         extra = dict(self.extra)
+        extra.setdefault("companyDedupe", True)
         if self.workCities:
             extra["workCities"] = list(self.workCities)
             extra["cityMatch"] = "contains_any"
@@ -169,6 +170,7 @@ class JobFilterQuery:
                 "jobCategory（选项卡片回传；新闻媒体大类几乎为空，勿单独当硬筛）",
                 "workCities 包含匹配（多城 OR，不要 eq）",
                 "keywords 在岗位名+描述+技能/其他要求上 OR",
+                "同一公司只保留一条（算法侧会再去重）",
             ],
             "city_match": "contains_any",
             "note": (
@@ -176,6 +178,7 @@ class JobFilterQuery:
                 "多关键词、多城市请 OR。"
                 "学院本周推荐请在返回的岗位上带 weeklyRecommend=true（或 tags 含「本周推荐」），供排序 +1。"
                 "新闻媒体大类现网几乎为空，方向走 keyword。"
+                "关键词筛完后请尽量按公司去重或加大 size；算法侧同一公司只保留一条。"
             ),
         }
 
@@ -190,6 +193,7 @@ def query_from_slots(slots: dict[str, Any]) -> JobFilterQuery:
         if slots.get(k):
             extra[k] = slots[k]
     extra["cityMatch"] = "contains_any"
+    extra["companyDedupe"] = True
 
     category = slots.get("jobCategory") or None
     prefer_media = category == "MEDIA"
@@ -226,7 +230,7 @@ def query_from_slots(slots: dict[str, Any]) -> JobFilterQuery:
         extra["keywordFields"] = ["positionName", "jobDesc", "reqSkills", "reqOther"]
 
     return JobFilterQuery(
-        size=40,
+        size=80,
         jobCategory=category,
         jobSubCategory=slots.get("jobSubCategory") or None,
         recruitType=slots.get("recruitType") or None,
