@@ -31,6 +31,7 @@ from job_structuring.normalize import (
     is_compilation_title,
     sanitize_position_name,
 )
+from job_structuring.prefilter import is_irrelevant_tech_job, should_extract
 
 CONFIG_FILE = "config.json"
 CSV_FILE = "all_positions.csv"
@@ -421,6 +422,11 @@ _NON_RECRUITMENT_TITLE_HINTS = (
     "受聘仪式",
     "人才交流会举行",
     "赛事首金",
+    "该怎么办",
+    "人物丨",
+    "毕业典礼",
+    "转专业机制",
+    "生涯发展咨询",
     "文化月",
     "假期躺平",
     "漫谈",
@@ -1312,6 +1318,14 @@ def process_new_markdown(
         _log_skip_article(md_path, skip_reason, article_title)
         return
 
+    pref = should_extract(md_text, article_title, config)
+    if pref.get("skipped"):
+        _log_skip_article(md_path, pref.get("reason") or "关键词预筛未命中", article_title)
+        print(
+            f"  [structure_data] 预筛未命中，跳过 LLM（词表 {pref.get('term_count')}）: {article_title}"
+        )
+        return
+
     article_link = _article_link_from_md(md_text)
     csv_path = paths.csv_path()
     os.makedirs(os.path.dirname(csv_path) or ".", exist_ok=True)
@@ -1370,12 +1384,17 @@ def process_new_markdown(
     written = 0
     skipped_dup = 0
     skipped_invalid = 0
+    skipped_tech = 0
     for zh_item in items:
         flat_preview = _flatten_zh_record_to_camel(zh_item)
         company_name = _normalize_field(flat_preview.get("companyName"))
         job_title = _normalize_field(flat_preview.get("positionName"))
         if not company_name or not job_title:
             skipped_invalid += 1
+            continue
+        if is_irrelevant_tech_job(job_title, flat_preview.get("jobDesc")):
+            skipped_tech += 1
+            print(f"  [structure_data] 技术岗过滤，不入库: {job_title}")
             continue
         if dedup_index.contains(article_link, company_name, job_title, md_path):
             skipped_dup += 1
@@ -1400,11 +1419,16 @@ def process_new_markdown(
         )
     elif written == 0:
         print(
-            f"  [structure_data] 未写入任何行（无效 {skipped_invalid}，去重 {skipped_dup}）: {md_path}"
+            f"  [structure_data] 未写入任何行（无效 {skipped_invalid}，技术岗 {skipped_tech}，去重 {skipped_dup}）: {md_path}"
         )
     else:
-        dup_note = f"，去重跳过 {skipped_dup}" if skipped_dup else ""
-        print(f"  [structure_data] 已写入 {written} 条岗位{dup_note}: {md_path}")
+        extra = []
+        if skipped_dup:
+            extra.append(f"去重跳过 {skipped_dup}")
+        if skipped_tech:
+            extra.append(f"技术岗过滤 {skipped_tech}")
+        note = f"（{('，'.join(extra))}）" if extra else ""
+        print(f"  [structure_data] 已写入 {written} 条岗位{note}: {md_path}")
 
 
 def run_batch_dir(dir_path: str, config: Optional[dict] = None) -> None:

@@ -52,6 +52,11 @@ uvicorn job_structuring.serve:app --host 0.0.0.0 --port 9101
 
 LLM 输入输出日志：`logs/llm_io/YYYY-MM-DD.jsonl`（按天，含模型输入/输出/耗时）。
 
+按日 × 数据源统计（线上 `/data/wechat`）：`python pipeline/report_source_stats.py --root /data/wechat`
+
+抽岗前关键词预筛（少调 LLM）：`python -m job_structuring.prefilter --dir data/articles`  
+人岗推荐对话/排序：`uvicorn job_recommend.serve:app --port 9102`
+
 上传后端（可选，需配置 `backend_base_url`）：
 
 ```bash

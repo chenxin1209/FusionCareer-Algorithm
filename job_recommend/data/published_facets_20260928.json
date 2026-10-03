@@ -1,0 +1,35 @@
+{
+  "snapshot": "2026-09-28",
+  "published": 681,
+  "student_visible": 679,
+  "notes": [
+    "岗位大类=新闻媒体仅2条，不可作为硬筛；相关岗多在企业/其他+标题含记者编辑新媒体。",
+    "城市精确等于「上海」仅16条，包含「上海」约266条；空城市312条。list 的 workCity 必须改为模糊匹配。",
+    "工作时长/周期约95%未填，不宜作为主筛。",
+    "学历约76%未填。"
+  ],
+  "job_category": {
+    "ENTERPRISE": 411,
+    "OTHER": 210,
+    "GOVERNMENT": 38,
+    "ACADEMIC": 20,
+    "MEDIA": 2
+  },
+  "recruit_type": {
+    "CAMPUS_RECRUITMENT": 395,
+    "BIG_INTERNSHIP": 119,
+    "SMALL_INTERNSHIP": 91,
+    "OTHER": 46,
+    "DAILY_INTERNSHIP": 29
+  },
+  "work_mode": {"OFFLINE": 542, "EMPTY": 119, "HYBRID": 17, "ONLINE": 3},
+    "filter_priority": [
+    "status=PUBLISHED（硬过滤）",
+    "recruitType / jobCategory 选项卡片回传",
+    "workCities 包含匹配（多城 OR）",
+    "keywords 岗位名+描述+能力 OR",
+    "学院本周推荐排序 +1，不要给新闻类岗位额外 +2"
+  ],
+  "recommend_page_size": 40,
+  "rank_llm_cap": 15
+}
