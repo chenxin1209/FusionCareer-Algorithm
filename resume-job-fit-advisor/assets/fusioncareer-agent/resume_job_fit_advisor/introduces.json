@@ -1,0 +1,39 @@
+{
+  "resume_advice": {
+    "role": "O",
+    "schema": {
+      "type": "object",
+      "required": [
+        "status",
+        "jobId",
+        "resumeVersion",
+        "summary",
+        "fitLevel",
+        "requirements",
+        "sectionSuggestions",
+        "proofQuestions",
+        "safeguards"
+      ],
+      "properties": {
+        "status": { "type": "string", "enum": ["ok", "needs_resume"] },
+        "jobId": { "type": "string" },
+        "resumeVersion": { "type": "string" },
+        "summary": { "type": "string" },
+        "fitLevel": { "type": "string", "enum": ["strong", "mixed", "weak", "unknown"] },
+        "requirements": { "type": "array", "items": { "type": "object" } },
+        "sectionSuggestions": { "type": "array", "items": { "type": "object" } },
+        "proofQuestions": { "type": "array", "items": { "type": "object" } },
+        "safeguards": {
+          "type": "object",
+          "required": ["resumeModified", "unsupportedClaimsAsserted"],
+          "properties": {
+            "resumeModified": { "type": "boolean", "const": false },
+            "unsupportedClaimsAsserted": { "type": "boolean", "const": false }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

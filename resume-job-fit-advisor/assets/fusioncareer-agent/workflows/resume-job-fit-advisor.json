@@ -1,0 +1,26 @@
+{
+  "name": "resume-job-fit-advisor",
+  "nodes": {
+    "input_user_id": {
+      "skill": "input_text",
+      "inputs": { "text": { "value": "" } }
+    },
+    "input_job_id": {
+      "skill": "input_text",
+      "inputs": { "text": { "value": "" } }
+    },
+    "input_question": {
+      "skill": "input_text",
+      "inputs": { "text": { "value": "请结合当前岗位完整分析我的简历，并给出按优先级排序的修改建议。" } }
+    },
+    "advisor": {
+      "skill": "resume_job_fit_advisor",
+      "timeout_seconds": 120,
+      "inputs": {
+        "user_id": { "from": "input_user_id.text" },
+        "job_id": { "from": "input_job_id.text" },
+        "question": { "from": "input_question.text" }
+      }
+    }
+  }
+}

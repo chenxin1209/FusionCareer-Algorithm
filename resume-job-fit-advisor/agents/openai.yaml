@@ -1,0 +1,4 @@
+interface:
+  display_name: "简历岗位匹配顾问"
+  short_description: "结合当前岗位与真实简历，给出可核验且不代改文件的优化建议"
+  default_prompt: "Use $resume-job-fit-advisor to analyze my resume against the job currently open and suggest evidence-grounded improvements."
