@@ -20,7 +20,7 @@
 | 管理员端解析 | 粘贴原文回填表单：学院内推、大/小实习、无年份日期补全 |
 | 字段对齐 | camelCase，对齐后端 `JobPostRequest` |
 | 标题预过滤 | 跳过双选会、讲座等非招聘文 |
-| 去重 | 篇内 + CSV 增量 + 流水线全量去重 |
+| 去重 | **抽岗前**对 MD 做 n-gram + MinHash + LSH + Jaccard 近重复去重；抽岗后篇内 + CSV 增量去重 |
 
 **去重键：** `(sourceUrl 或 source_md, companyName, positionName)`
 
@@ -56,7 +56,16 @@ uvicorn job_structuring.serve:app --host 0.0.0.0 --port 9101
 
 ## 5. 日志
 
+抽岗前文章去重（每天爬到的 MD 先做这一步，再调模型）：
+
+```bash
+python -m job_structuring.article_dedup --dir data/articles
+```
+
+字符 3-gram → MinHash → `MinHashLSH` 分桶 → 桶内 Jaccard，默认 ≥ 0.8 只留一篇。流水线 `run_batch_dir` / `run_pipeline.py` 已接入。
+
 - `logs/pipeline.log` — 流水线摘要
+- `logs/article_dedup/YYYY-MM-DD.jsonl` — 文章近重复去重摘要
 - `logs/non_recruitment.log` — 跳过记录
 - `logs/llm_io/YYYY-MM-DD.jsonl` — **每次 LLM 的完整输入/输出**（`channel=crawl` 爬虫抽取，`channel=admin` 管理员解析）
 - `logs/llm_io/latest.json` — 最近一次调用快照
