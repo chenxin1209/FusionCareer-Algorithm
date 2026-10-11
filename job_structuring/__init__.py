@@ -8,6 +8,7 @@ from job_structuring.engine import (
     run_batch_dir,
 )
 from job_structuring.admin_parse import parse_job_text
+from job_structuring.article_dedup import select_unique_markdowns
 from job_structuring.prefilter import should_extract
 from job_structuring.export import export_positions_json
 from job_structuring import paths
@@ -23,4 +24,5 @@ __all__ = [
     "PositionDedupIndex",
     "parse_job_text",
     "should_extract",
+    "select_unique_markdowns",
 ]

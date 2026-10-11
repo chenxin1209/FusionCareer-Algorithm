@@ -52,6 +52,7 @@ def run() -> int:
     _log(f"articles: {articles_dir}")
     _log(f"csv: {csv_out}")
     _log(f"json: {json_out}")
+    _log("抽岗前先做 MinHash+LSH 文章去重，近重复只留一篇再进模型")
 
     run_batch_dir(articles_dir, config)
 

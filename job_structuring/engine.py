@@ -31,6 +31,7 @@ from job_structuring.normalize import (
     is_compilation_title,
     sanitize_position_name,
 )
+from job_structuring.article_dedup import select_unique_markdowns
 from job_structuring.prefilter import is_irrelevant_tech_job, should_extract
 
 CONFIG_FILE = "config.json"
@@ -1450,9 +1451,25 @@ def run_batch_dir(dir_path: str, config: Optional[dict] = None) -> None:
             if name.lower().endswith(".md"):
                 md_files.append(os.path.join(root, name))
     md_files.sort()
-    total = len(md_files)
-    print(f"[structure_data] 批量模式: {dir_path} 共 {total} 个 Markdown")
-    for i, p in enumerate(md_files, 1):
+    kept_files, dropped_near = select_unique_markdowns(md_files, config)
+    if dropped_near:
+        print(
+            f"[structure_data] MinHash+LSH 文章去重: {len(md_files)} → {len(kept_files)} "
+            f"（近重复跳过 {len(dropped_near)}，不再进模型）"
+        )
+        log_path = paths.skip_log_path()
+        os.makedirs(os.path.dirname(log_path) or ".", exist_ok=True)
+        with open(log_path, "a", encoding="utf-8") as logf:
+            for item in dropped_near:
+                line = (
+                    f"文章近重复(MinHash-LSH, Jaccard={item.jaccard:.3f}, "
+                    f"保留 {item.kept_path}): {item.title} | {item.path}\n"
+                )
+                print(f"  [structure_data] {line.strip()}")
+                logf.write(line)
+    total = len(kept_files)
+    print(f"[structure_data] 批量模式: {dir_path} 共 {len(md_files)} 个 Markdown，去重后抽岗 {total} 篇")
+    for i, p in enumerate(kept_files, 1):
         print(f"[structure_data] [{i}/{total}] {p}")
         process_new_markdown(p, config, dedup_index=dedup_index)
 
