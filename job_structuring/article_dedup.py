@@ -25,8 +25,9 @@ _DEFAULTS = {
     "ngram": 3,
     "num_perm": 128,
     "lsh_threshold": 0.6,
-    "jaccard_threshold": 0.8,
+    "jaccard_threshold": 0.85,
     "index_rel": os.path.join("logs", "article_minhash.json"),
+    "persist": True,
 }
 
 
@@ -38,10 +39,11 @@ def _cfg(config: Optional[dict], key: str) -> Any:
         "lsh_threshold": "article_dedup_lsh_threshold",
         "jaccard_threshold": "article_dedup_jaccard_threshold",
         "index_rel": "article_dedup_index",
+        "persist": "article_dedup_persist",
     }
     cfg = config or {}
     raw = cfg.get(mapping[key], _DEFAULTS[key])
-    if key == "enabled":
+    if key in ("enabled", "persist"):
         return raw is not False
     if key in ("ngram", "num_perm"):
         try:
@@ -83,10 +85,15 @@ def jaccard(a: set[str], b: set[str]) -> float:
     return inter / union if union else 0.0
 
 
-def _hash64(data: bytes, seed: int) -> int:
+_MH_P = (1 << 61) - 1
+_MH_A = tuple((i * 2 + 1) * 0x9E3779B185EBCA87 % _MH_P for i in range(256))
+_MH_B = tuple((i * 2 + 1) * 0xC2B2AE3D27D4EB4F % _MH_P for i in range(256))
+
+
+def _hash64(data: bytes) -> int:
     import hashlib
 
-    return int.from_bytes(hashlib.blake2b(data, digest_size=8, person=str(seed).encode()).digest(), "little")
+    return int.from_bytes(hashlib.blake2b(data, digest_size=8).digest(), "little") % _MH_P
 
 
 class _LocalMinHash:
@@ -97,11 +104,12 @@ class _LocalMinHash:
         if hashvalues is not None:
             self.hashvalues = [int(v) for v in hashvalues]
         else:
-            self.hashvalues = [(1 << 64) - 1] * num_perm
+            self.hashvalues = [_MH_P] * num_perm
 
     def update(self, data: bytes) -> None:
+        x = _hash64(data)
         for i in range(self.num_perm):
-            v = _hash64(data, i)
+            v = (_MH_A[i] * x + _MH_B[i]) % _MH_P
             if v < self.hashvalues[i]:
                 self.hashvalues[i] = v
 
@@ -329,7 +337,8 @@ def select_unique_markdowns(
     LSH = _lsh_cls()
 
     docs: list[ArticleDoc] = []
-    for path in md_paths:
+    total_in = len(md_paths)
+    for i, path in enumerate(md_paths, 1):
         if not os.path.isfile(path):
             continue
         title, text = _read_md(path)
@@ -349,11 +358,13 @@ def select_unique_markdowns(
                 size=len(normalize_text(text)),
             )
         )
+        if total_in >= 200 and i % 500 == 0:
+            print(f"  [article_dedup] 签名 {i}/{total_in}", flush=True)
     if not docs:
         return [], []
 
     lsh = LSH(threshold=lsh_th, num_perm=num_perm)
-    history = _load_history(config, num_perm)
+    history = _load_history(config, num_perm) if _cfg(config, "persist") else []
     hist_mh: dict[str, Any] = {}
     hist_key_to_path = {}
     for key, mh, raw_path in history:
@@ -426,7 +437,8 @@ def select_unique_markdowns(
             )
     dropped.extend(drop_vs_history.values())
     keep_paths = [d.path for d in sorted(keep, key=lambda x: x.path)]
-    _save_history(keep, config)
+    if _cfg(config, "persist"):
+        _save_history(keep, config)
     _log_jsonl(
         {
             "ts": datetime.now(_TZ).isoformat(timespec="seconds"),
