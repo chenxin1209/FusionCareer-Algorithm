@@ -18,7 +18,7 @@
   "article_dedup_ngram": 3,
   "article_dedup_num_perm": 128,
   "article_dedup_lsh_threshold": 0.6,
-  "article_dedup_jaccard_threshold": 0.8,
+  "article_dedup_jaccard_threshold": 0.85,
   "article_dedup_index": "logs/article_minhash.json",
   "prefilter_enabled": true,
   "prefilter_min_hits": 1,

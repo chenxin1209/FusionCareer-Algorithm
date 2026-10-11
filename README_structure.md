@@ -62,7 +62,7 @@ uvicorn job_structuring.serve:app --host 0.0.0.0 --port 9101
 python -m job_structuring.article_dedup --dir data/articles
 ```
 
-字符 3-gram → MinHash → `MinHashLSH` 分桶 → 桶内 Jaccard，默认 ≥ 0.8 只留一篇。流水线 `run_batch_dir` / `run_pipeline.py` 已接入。
+字符 3-gram → MinHash → `MinHashLSH` 分桶 → 桶内 Jaccard，默认 ≥ 0.85 只留一篇。流水线 `run_batch_dir` / `run_pipeline.py` 已接入。
 
 - `logs/pipeline.log` — 流水线摘要
 - `logs/article_dedup/YYYY-MM-DD.jsonl` — 文章近重复去重摘要
